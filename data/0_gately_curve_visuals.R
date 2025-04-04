@@ -57,7 +57,7 @@ for (beta_i in beta_i_values) {
   }
 }
 
-# Create the plot
+
 plot <- ggplot(all_data, aes(x = GDPit, y = Y_it, color = alpha)) +
   geom_line() +
   facet_wrap(~ beta_i, scales = "fixed") +
@@ -68,11 +68,9 @@ plot <- ggplot(all_data, aes(x = GDPit, y = Y_it, color = alpha)) +
   theme_bw() +
   facet_wrap(~ beta_i, scales = "fixed", labeller = label_both)
 
-
-# Save the plot as a PNG file
 ggsave(here::here("plots", paste0("/gompertz_facetted_beta.png")), plot, width = 10, height = 6)
 
-# Create the plot
+
 plot <- ggplot(all_data, aes(x = GDPit, y = Y_it, color = beta_i)) +
   geom_line() +
   facet_wrap(~ alpha, scales = "fixed") +
@@ -83,8 +81,6 @@ plot <- ggplot(all_data, aes(x = GDPit, y = Y_it, color = beta_i)) +
   theme_bw() +
   facet_wrap(~ alpha, scales = "fixed", labeller = label_both)
 
-
-# Save the plot as a PNG file
 ggsave(here::here("plots", paste0("/gompertz_facetted_alpha.png")), plot, width = 10, height = 6)
 
 
