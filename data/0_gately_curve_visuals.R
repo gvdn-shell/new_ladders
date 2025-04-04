@@ -31,8 +31,6 @@ gompertz_curve <- function(lambda, alpha, beta_i, GDPit) {
   lambda * exp(alpha * exp(beta_i * GDPit))
 }
 
-
-
 # Define the fixed value for lambda and the values for alpha and beta_i
 lambda <- 5
 alpha_values <- c(-0.1, -0.5, -1, -5)
@@ -41,10 +39,6 @@ beta_i_values <- c(-0.1, -0.5, -1, -5)
 # Generate a sequence of GDPit values
 GDPit <- seq(0, 20, by = 0.1)
 
-# Create a directory to save the plots if it doesn't exist
-if (!dir.exists("plots")) {
-  dir.create("plots")
-}
 
 # Initialize an empty data frame to store all the data
 all_data <- data.frame()
@@ -76,7 +70,22 @@ plot <- ggplot(all_data, aes(x = GDPit, y = Y_it, color = alpha)) +
 
 
 # Save the plot as a PNG file
-ggsave(here::here("plots", paste0("/gompertz_facetted.png")), plot, width = 10, height = 6)
+ggsave(here::here("plots", paste0("/gompertz_facetted_beta.png")), plot, width = 10, height = 6)
+
+# Create the plot
+plot <- ggplot(all_data, aes(x = GDPit, y = Y_it, color = beta_i)) +
+  geom_line() +
+  facet_wrap(~ alpha, scales = "fixed") +
+  labs(title = "Gompertz Curve for Different Combinations of alpha and beta_i (lambda = 1)",
+       x = "GDPit",
+       y = "Y_it",
+       color = "beta") +
+  theme_bw() +
+  facet_wrap(~ alpha, scales = "fixed", labeller = label_both)
+
+
+# Save the plot as a PNG file
+ggsave(here::here("plots", paste0("/gompertz_facetted_alpha.png")), plot, width = 10, height = 6)
 
 
 ################################################################################################################
