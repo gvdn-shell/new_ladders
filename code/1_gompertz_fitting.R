@@ -15,7 +15,10 @@ packages <- c("tidyverse",
               "DBI","odbc","readxlsb","RODBC",
               "WDI",
               "openxlsx",
-              "plotly") #
+              "plotly",
+              "plm",
+              "nlme",
+              "nls2") #
 installed_packages <- packages %in% rownames(installed.packages())
 
 if (any(!installed_packages)) {
@@ -41,6 +44,192 @@ showtext_auto()
 
 #Plot: need to open Windows graphics device as showtext does not work well with RStudio built-in graphics device
 windows()
+
+##################################################################################################################################
+### Load data
+
+all.data <- readRDS( here::here("data", "all_data_wem.rds"))
+
+panel_data <- all.data %>%
+  rename(
+    country = country_name,
+    gini =SI.POV.GINI,
+    GDP = GDP_PPP_pcap,
+    density = EN.POP.DNST,
+    urbanization = SP.URB.TOTL.IN.ZS,
+    ) 
+
+### Preprocessing of Dbar and Ubar
+usa_values <- panel_data %>%
+  filter(country == 'USA') %>%
+  select(year, density, urbanization) %>%
+  rename(density_USA = density, urbanization_USA = urbanization)
+
+# Merge USA values with original data
+
+all.data1 <- panel_data %>%
+  left_join(usa_values, by = "year")
+
+
+# Calculate Dbar and Ubar
+
+panel_data <- all.data1 %>%
+  ungroup() %>%
+  mutate(Dbar = ifelse(density > density_USA, density - density_USA, 0),
+         Ubar = ifelse(urbanization > urbanization_USA, urbanization - urbanization_USA, 0),
+         Rising = ifelse(GDP > lag_GDP_PPP_pcap, 1, 0),
+         Falling = ifelse(GDP < lag_GDP_PPP_pcap, 1, 0))
+
+
+# Define the Gompertz model function
+gompertz_model <- function(params, data) {
+  gamma_max <- 5000
+  lambda <- params[1]
+  phi <- params[2]
+  alpha <- params[3]
+  beta <- params[4:(length(params)-2)]
+  theta_R <- params[length(params)-1]
+  theta_F <- params[length(params)]
+  
+  saturation_level_it <- gamma_max + lambda * data$Dbar + phi * data$Ubar
+  exp_term <- exp(alpha * exp(beta[as.numeric(as.factor(data$country))] * data$GDP))
+  energy_service_pred <- saturation_level_it * (theta_R * data$Rising + theta_F * data$Falling) * exp_term + 
+    (1 - (theta_R * data$Rising + theta_F * data$Falling)) * data$lag_energy_service
+  
+  return(energy_service_pred)
+}
+
+# Initial parameter values
+initial_params <- c(-0.000388, -0.007765, -5.897, rep(-0.15, length(unique(panel_data$country))), 0.095, 0.084)
+
+# Fit the model with cleaned data
+fit <- nls(
+  energy_service ~ gompertz_model(params, panel_data),
+  data = panel_data,
+  start = list(params = initial_params)
+)
+
+# View the summary of the model fit
+summary(fit)
+
+
+
+
+
+######################################################################################
+
+# Define the Gompertz model function
+gompertz_model <- function(params, data) {
+  gamma_max <- params[1]
+  lambda <- params[2]
+  phi <- params[3]
+  alpha <- params[4]
+  beta <- params[5:length(params)]
+  theta_R <- params[length(params) - 1]
+  theta_F <- params[length(params)]
+  
+  saturation_level_it <- gamma_max + lambda * data$Dbar + phi * data$Ubar
+  exp_term <- exp(alpha * exp(beta[as.numeric(as.factor(data$country))] * data$GDP))
+  energy_service_pred <- saturation_level_it * (theta_R * data$Rising + theta_F * data$Falling) * exp_term + 
+    (1 - (theta_R * data$Rising + theta_F * data$Falling)) * data$lag_energy_service
+  
+  return(energy_service_pred)
+}
+
+# Initial parameter values
+initial_params <- c(852, -0.000388, -0.007765, -5.897, rep(-0.15, length(unique(panel_data$country))), 0.095, 0.084)
+
+# Fit the model
+fit <- nls(
+  energy_service ~ gompertz_model(params, panel_data),
+  data = panel_data,
+  start = list(params = initial_params)
+)
+####
+sum(is.na(panel_data))
+sum(is.infinite(panel_data))
+
+# Drop rows with NA values in density, urbanization, energy_service, GDP, lag_GDP_PPP_pcap, lag_energy_service, Rising, Falling, Ubar, Dbar
+panel_data1 <- panel_data %>%
+  filter(!is.na(density) & !is.na(urbanization) & !is.na(energy_service) & 
+           !is.na(GDP) & !is.na(lag_GDP_PPP_pcap) & !is.na(lag_energy_service) &
+           !is.na(Rising) & !is.na(Falling) & !is.na(Ubar) & !is.na(Dbar))
+
+
+fit <- nls(
+  energy_service ~ gompertz_model(params, panel_data1),
+  data = panel_data,
+  start = list(params = initial_params)
+)
+# View the summary of the model fit
+summary(fit)
+
+# Example structure of your panel dataset
+# panel_data <- data.frame(
+#   country = rep(c("USA", "Canada", "Mexico", "Germany"), each = 20),
+#   year = rep(2000:2019, times = 4),
+#   GDP = rnorm(80, mean = 50000, sd = 10000),
+#   density = rnorm(80, mean = 100, sd = 20),
+#   urbanization = runif(80, min = 50, max = 90),
+#   vehicle_ownership = rnorm(80, mean = 200, sd = 50)
+# )
+
+# View the first few rows of the dataset
+head(panel_data)
+
+gompertz_model <- function(params, data) {
+  gamma_max <- params[1]
+  lambda <- params[2]
+  phi <- params[3]
+  alpha <- params[4]
+  beta <- params[5:length(params)]
+  
+  data <- data %>%
+    group_by(country) %>%
+    arrange(year) %>%
+    mutate(
+      #lag_vehicle_ownership = lag(vehicle_ownership),
+      R_it = ifelse(GDP > lag(GDP), 1, 0),
+      F_it = ifelse(GDP < lag(GDP), 1, 0)
+    ) %>%
+    ungroup()
+  
+  D_it <- data$density
+  U_it <- data$urbanization
+  D_USA <- mean(data$density[data$country == "USA"])
+  U_USA <- mean(data$urbanization[data$country == "USA"])
+  
+  D_bar_it <- ifelse(D_it > D_USA, D_it - D_USA, 0)
+  U_bar_it <- ifelse(U_it > U_USA, U_it - U_USA, 0)
+  
+  saturation_level_it <- gamma_max + lambda * D_bar_it + phi * U_bar_it
+  
+  exp_term <- exp(alpha * exp(beta[as.numeric(as.factor(data$country))] * data$GDP))
+  vehicle_ownership_pred <- saturation_level_it * (params[6] * data$R_it + params[7] * data$F_it) * exp_term + (1 - (params[6] * data$R_it + params[7] * data$F_it)) * data$lag_vehicle_ownership
+  
+  return(vehicle_ownership_pred)
+}
+
+# Initial parameter values
+initial_params <- c(852, -0.000388, -0.007765, -5.897, rep(-0.15, length(unique(panel_data$country))), 0.095, 0.084)
+
+# Fit the model
+fit <- nls(
+  vehicle_ownership ~ gompertz_model(params, panel_data),
+  data = panel_data,
+  start = list(params = initial_params)
+)
+
+# View the summary of the model
+summary(fit)
+
+# Extract estimated parameters
+estimated_params <- coef(fit)
+
+# View the estimated parameters
+print(estimated_params)
+
+############################################################################################################
 
 
 
