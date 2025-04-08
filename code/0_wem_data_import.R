@@ -255,32 +255,34 @@ wdi.data <- data %>%
 all.data <- wdi.data %>%
   left_join(enerserv.data, by = c("country_id" = "country_id", "year" = "year")) %>%
   select(country_id, country_name, iso3c, year, SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, energy_service) %>%
-  mutate(energy_service = as.numeric(energy_service * 10 ^ 6)) %>% # Original units
+  mutate(energy_service = as.numeric(energy_service * 1e06)) %>% # Original units
   arrange(country_name, year) %>%
   as_tibble()
-
-all.data %>% filter(country_id == 1)
 
 ### Transform gdp from long to wide format
 gdp.pop.data.wider <- gdp.pop.data %>%
   #filter(data_type == "GDP_PPP") %>%
   select(country_id, year, value, data_type) %>%
   mutate(value = as.numeric(value)) %>%
+
   #arrange(country_id, year) %>%
   pivot_wider(names_from = data_type, values_from = value) %>%
-  mutate(GDP_PPP_pcap = (GDP_PPP * 10^9) / (Population * 10^3)) %>%
+  mutate(GDP_PPP = GDP_PPP * 1e09,
+         Population = Population * 1e03) %>%
+  mutate(GDP_PPP_pcap = (GDP_PPP) / (Population)) %>%
   as_tibble()
 
 ### Merge with gdp.pop.data
 all.data1 <- all.data %>%
   left_join(gdp.pop.data.wider, by = c("country_id" = "country_id", "year" = "year")) %>%
-  mutate(ES_pcap = energy_service / (Population * 10^3)) %>%
+  mutate(ES_pcap = energy_service / (Population)) %>%
   select(country_id, country_name, iso3c, year, SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, ES_pcap, energy_service, GDP_PPP_pcap, GDP_PPP) %>%
   #mutate(value = as.numeric(value)) %>%
   arrange(country_name, year) %>%
   as_tibble()
 
-all.data1 %>% filter(country_id == 1 & year == 2020)
+all.data1 %>% filter(country_id == 1 & year == 2023) %>%
+  select(ES_pcap)
 
 ggplotly(ggplot(all.data1, aes(y = ES_pcap, x = year, color = country_name)) +
            geom_line()+

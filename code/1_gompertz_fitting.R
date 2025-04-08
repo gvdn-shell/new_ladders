@@ -97,6 +97,23 @@ ggplot(panel_data, aes(y = energy_service, x = gini, colour = country, group = c
   labs(title = "Gini vs Energy Service", x = "Gini", y = "Energy Service") +
   theme_minimal()
 
+ggplotly(ggplot(panel_data, aes(y = GDP, x = year, colour = country, group = country)) +
+  geom_point() +
+    geom_line() +
+  #geom_smooth(method = "lm") +
+  labs(title = "GDP over Time", x = "GDP", y = "Year") +
+  theme_minimal())
+
+#### Discard GDP outliers - discard data where countries have GDP > 100000 before 1980
+panel_data2 <- panel_data %>%
+  filter(!(GDP > 100000 & year < 1986)) 
+
+ggplotly(ggplot(panel_data2, aes(y = GDP, x = year, colour = country, group = country)) +
+           geom_point() +
+           geom_line() +
+           #geom_smooth(method = "lm") +
+           labs(title = "GDP over Time", x = "GDP", y = "Year") +
+           theme_minimal())
 ###########################################################################################
 
 # Fit the Gaussian mixture model using flexmix
@@ -266,7 +283,7 @@ getMeanFunctions()
 model <- nls(log(ES_pcap) ~ NLS.E4(log(GDP), b, c, d, e) , data = s.curve.data %>% filter(cluster == 1), 
              control = control_list, na.action = na.omit)
 
-model <- drm((ES_pcap) ~(GDP), fct = W2.4(), data  = s.curve.data %>% filter(cluster == 3), 
+model <- drm((ES_pcap) ~(GDP), fct = W2.4(), data  = s.curve.data, #%>% filter(cluster == 3), 
              na.action = na.omit)
 
 summary(model) # check standard errors and significance as well as overall fit
