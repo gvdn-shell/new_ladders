@@ -18,7 +18,10 @@ packages <- c("tidyverse",
               "plotly",
               "plm",
               "nlme",
-              "nls2") #
+              "nls2",
+              "flexmix",
+              "fastDummies",
+              "statforbiology") #
 installed_packages <- packages %in% rownames(installed.packages())
 
 if (any(!installed_packages)) {
@@ -43,7 +46,7 @@ font_families()
 showtext_auto()
 
 #Plot: need to open Windows graphics device as showtext does not work well with RStudio built-in graphics device
-windows()
+# windows()
 
 ##################################################################################################################################
 ### Load data
@@ -78,7 +81,697 @@ panel_data <- all.data1 %>%
   mutate(Dbar = ifelse(density > density_USA, density - density_USA, 0),
          Ubar = ifelse(urbanization > urbanization_USA, urbanization - urbanization_USA, 0),
          Rising = ifelse(GDP > lag_GDP_PPP_pcap, 1, 0),
-         Falling = ifelse(GDP < lag_GDP_PPP_pcap, 1, 0))
+         Falling = ifelse(GDP < lag_GDP_PPP_pcap, 1, 0)) %>%
+  arrange(country, year)
+
+ggplot(panel_data, aes(y = energy_service, x = GDP, colour = country, group = country)) +
+  geom_point() +
+  #geom_smooth(method = "lm") +
+  labs(title = "GDP vs Energy Service", x = "GDP", y = "Energy Service") +
+  theme_minimal()
+
+ggplot(panel_data, aes(y = energy_service, x = gini, colour = country, group = country)) +
+  geom_point() +
+  geom_line() +
+  #geom_smooth(method = "lm") +
+  labs(title = "Gini vs Energy Service", x = "Gini", y = "Energy Service") +
+  theme_minimal()
+
+###########################################################################################
+
+# Fit the Gaussian mixture model using flexmix
+set.seed(42)  # For reproducibility
+
+ggplot(panel_data, aes(y = log(ES_pcap), x = log(GDP), colour = country, group = country)) +
+  geom_point() +
+  #geom_smooth(method = "lm") +
+  labs(title = "GDP vs Energy Service", x = "GDP", y = "Energy Service") +
+  theme_minimal()
+
+# Normalize data for clustering - normalize GDP_PPP_pcap and ES_pcap
+
+# library(caret)
+# 
+cluster_data <- panel_data
+# 
+# # Standardize before clustering
+# cluster_data$GDP <- scale(cluster_data$GDP)
+# cluster_data$energy_service <- scale(cluster_data$energy_service)
+# 
+# summary(cluster_data)
+
+# # Define the clustering model
+# lcgaMix <- stepFlexmix(.~.|country_id,
+#   model = FLXMRglmfix(log(ES_pcap) ~ log(GDP)  + year, varFix=FALSE),
+#   data = cluster_data,
+#   k = 1:10,
+#   nrep = 200,
+#   control = list(iter.max = 500, minprior = 0)
+# )
+# 
+# saveRDS(lcgaMix, file = here("data", "pt_road_cluster_lcga.rds"))
+
+
+lcgaMix <- readRDS(file = here::here("data", "pt_road_cluster_lcga.rds"))
+# Extract the BIC values from the 'lcgaMix' object
+bic_values <- BIC(lcgaMix)
+
+# Plot the BIC values as a fit statistic curve
+plot(1:10, bic_values, type = "b", xlab = "Number of Clusters (K)", ylab = "BIC Value",
+     main = "BIC Value vs. Number of Clusters")
+
+# Add a horizontal line to indicate the minimum BIC value
+abline(h = min(bic_values), col = "red")
+
+# Add a legend for the horizontal line
+legend("topright", legend = "Optimal K", col = "red", lty = 1, cex = 0.8)
+
+# Elbow at K = 3
+
+lcga5 <- getModel(lcgaMix, which = 3)
+
+# Add clusters to data_set
+
+cluster.data2 <- cluster_data 
+
+length(clusters(lcga5))
+nrow(cluster.data2)
+
+cluster.data2$cluster <- clusters(lcga5)
+
+# Plot countries by clusters
+
+# p1 <- ggplotly(ggplot(data = cluster.data2, aes(x = ESPrice_Avg, y = ES_pcap, color = factor(Country), group = factor(cluster))) +
+#                  facet_wrap(facets = vars(cluster)) +
+#                  geom_point() +
+#                  geom_smooth(formula = y ~ x, method = "lm", se = FALSE) +
+#                  scale_y_continuous(trans = "sqrt"))
+# 
+# p1
+# 
+# htmlwidgets::saveWidget(p1, file = here::here("Ladder estimation", "Sectors", "Plots", "2_NFM_HI_phase2_maturity_mixture_patterns.html"), selfcontained = TRUE)
+
+
+p1 <- ggplot(data = cluster.data2, aes(x = log(GDP), y = log(ES_pcap), color = factor(country), group = factor(cluster))) +
+  facet_wrap(facets = vars(cluster)) +
+  geom_line() +
+  geom_point() +
+  geom_text(data = subset(cluster.data2, !duplicated(country, fromLast = TRUE)),
+            aes(label = country), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02)) +
+  stat_smooth(formula = y ~ x, method = "lm", se = FALSE, color = "black", linetype = "dashed") +
+  
+  labs(color = "Country", group = "Country",
+       title = "Clusters of countries by GDP per capita and ES per capita",
+       y = "log(Energy Service per capita)",
+       x = "log(GDP)") 
+
+p1
+p2 <- ggplotly(p1 + theme(
+  axis.title.y = element_text(size = 18, family = "ShellMedium"),
+  axis.title.x = element_text(size = 18, family = "ShellMedium"),
+  axis.text.y = element_text(size = 16, family = "ShellMedium"),
+  axis.text.x = element_text(size = 16, family = "ShellMedium"),
+  plot.margin = margin(l = 40, r = 40, t = 60, b = 40),
+  legend.position = c(1.05, 0.9),
+  legend.text = element_text(size = 18, family = "ShellMedium"),
+  legend.title = element_blank(),
+  legend.background = element_rect(fill = "white", color = "black"),
+  plot.background = element_rect(fill = "white"),
+  panel.background = element_rect(fill = "white"),
+  panel.grid.major = element_line(color = "gray", linetype = "dashed"),
+  panel.grid.minor = element_blank(),
+  plot.title = element_text(size = 18, family = "ShellMedium", hjust = 0.5),  # Center-align the title
+  plot.caption = element_blank(),
+  plot.subtitle = element_blank()
+))
+
+p2 
+
+htmlwidgets::saveWidget(p2, file = here::here("plots", "pt_road_mixture_patterns.html"), selfcontained = TRUE)
+
+
+###############################
+result <- cluster.data2
+
+library(fastDummies)
+result <- dummy_cols(result, select_columns = "cluster")
+
+s.curve.data <- result %>%
+  arrange(country, year, cluster) %>%
+  ungroup()
+# select(-starts_with("Pattern_Phase2_")) %>%
+# mutate(Pattern_Phase2 = case_when(Country == "USA" | Country == "Australia" ~ 1, 
+# Country == "Austria" ~ 2, TRUE ~ Pattern_Phase2)) %>%
+# dummy_cols(select_columns = "Pattern_Phase2", remove_selected_columns = FALSE)
+
+table(s.curve.data$cluster)
+
+# S-curve estimation - Gompertz curve
+
+Gompertz <- function(x, gamma, alpha, beta) {
+  result <- gamma * exp(alpha * exp(beta * (x)))
+  return(result)
+}
+
+
+# Scurve <- function(x, lower_asym, upper_asym, steepness, midpoint) {
+#   result <- lower_asym + (upper_asym - lower_asym) / (1 + exp(-steepness * (x - midpoint)))
+#   return(result)
+# }
+
+##### S-curve:
+### Self-starting functions: https://www.statforbiology.com/2020/stat_nls_usefulfunctions/#modified-gompertz-function
+
+# Specify the maximum number of iterations you want
+max_iterations <- 1000
+
+# Specify the tolerance value for convergence
+tolerance_value <- 1e-6  # You can adjust this value as needed
+
+# Specify the step factor for the optimization algorithm
+step_factor <- 0.1  # You can adjust this value as needed
+
+minfactor <- 1e-6
+
+# Create a control list with the desired parameters
+control_list <- list(maxiter = max_iterations, 
+                     tol = tolerance_value, 
+                     minFactor = minfactor,
+                     factor = step_factor, algorithm = "lm")
+
+s.curve.data <- s.curve.data %>% ungroup()
+
+getMeanFunctions()
+
+model <- nls(log(ES_pcap) ~ NLS.E4(log(GDP), b, c, d, e) , data = s.curve.data %>% filter(cluster == 1), 
+             control = control_list, na.action = na.omit)
+
+model <- drm((ES_pcap) ~(GDP), fct = W2.4(), data  = s.curve.data %>% filter(cluster == 3), 
+             na.action = na.omit)
+
+summary(model) # check standard errors and significance as well as overall fit
+
+plot(model, log ="", main = "Weibull 4-parameters")
+# Use the control argument to pass the control list to nlsList
+(m <- nls(log(ES_pcap) ~ SSgompertz(log(GDP), Asym, b2, b3) , data = s.curve.data, 
+              control = control_list, na.action = na.omit))
+
+(m <- nls(log(ES_pcap) ~ SSgompertz(log(GDP), Asym, b2, b3) , data = s.curve.data %>% filter(cluster == 1), 
+          control = control_list, na.action = na.omit))
+(m <- nls(log(ES_pcap) ~ SSgompertz(log(GDP), Asym, b2, b3) , data = s.curve.data %>% filter(cluster == 2), 
+          control = control_list, na.action = na.omit))
+(m <- nls(log(ES_pcap) ~ SSgompertz(log(GDP), Asym, b2, b3) , data = s.curve.data %>% filter(cluster == 3), 
+          control = control_list, na.action = na.omit))
+
+(m <- nlsList(log(ES_pcap) ~ SSgompertz(log(GDP), Asym, b2, b3) | cluster, data = s.curve.data, 
+              control = control_list, na.action = na.omit))
+
+# Assuming you have fitted the models using nlsList
+control_list <- list(maxiter = 1000, tol = 1e-05, minFactor = 1e-8, factor = 0.1, algorithm = "port")
+
+s.curve.data <- s.curve.data %>% ungroup()
+
+m <- nlsList(log(ES_pcap) ~ SSgompertz(log(GDP), Asym, b2, b3) | cluster, 
+             data = s.curve.data, 
+             control = control_list, 
+             na.action = na.omit)
+
+# Extract fitted values
+fitted_values <- fitted(m)
+
+# Combine fitted values with original data
+s.curve.data <- s.curve.data %>%
+  mutate(fitted_ES_pcap = exp(fitted_values))
+
+# Plot the fitted Gompertz function per cluster
+ggplot(s.curve.data, aes(x = log(GDP), y = log(ES_pcap), color = as.factor(cluster))) +
+  geom_point() +
+  geom_line(aes(y = log(fitted_ES_pcap)), size = 1) +
+  facet_wrap(~ cluster) +
+  labs(title = "Fitted Gompertz Function per Cluster",
+       x = "Log(GDP)",
+       y = "Log(ES_pcap)",
+       color = "Cluster") +
+  theme_minimal()
+
+
+(m <- nlsList(ES_pcap ~ SSlogis(GDP_pcap, Asym, xmid , scal) | cluster, data = s.curve.data, control = control_list))
+
+(m <- nlsList(ES_pcap ~ SSlogis(GDP_pcap, Asym, xmid = m1.median.gdp, scal) | cluster, data = s.curve.data, control = control_list))
+
+
+# Get clusters for Scenarios
+
+df.patterns <- (s.curve.data) %>%
+  dplyr::select(country_id, cluster) %>%
+  ungroup() %>%
+  group_by(country_id, cluster) %>%
+  dplyr::slice(1)
+
+complete.data <- data.frame(country_id = 1:100)
+
+# Left join the complete data with the original data
+
+all.countries <- complete.data %>%
+  left_join(df.patterns, by = "country_id")
+
+Data.to.excel <- all.countries %>%
+  ungroup() %>% arrange(country_id) %>% 
+  dplyr::select(cluster) %>%
+  mutate_all(~if_else(is.na(.), "", as.character(.))) # Change NA to blank for Excel
+
+# Convert the data frame to a tab-separated string
+writeClipboard(capture.output(write.table(Data.to.excel, sep = "\t", quote = FALSE, 
+                                          row.names = FALSE, col.names = FALSE)))
+
+# Extract the first column of coefficients from 'all.coeffs' object
+all.coeffs <- coef(m)
+asym <- all.coeffs[, 1]
+midpoint.x <- all.coeffs[, 2]
+steepness <- 1/all.coeffs[, 3]
+
+# Write the first column to the clipboard
+write.table(asym, file = "clipboard", sep = "\t", col.names = FALSE, row.names = FALSE)
+write.table(midpoint.x, file = "clipboard", sep = "\t", col.names = FALSE, row.names = FALSE)
+write.table(steepness, file = "clipboard", sep = "\t", col.names = FALSE, row.names = FALSE)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+########################################################################################################################
+# Randomly select 10 numbers from 1 to 79
+set.seed(123) # For reproducibility
+random_numbers <- sample(1:79, 25)
+# Fit the model using nls to get initial estimates
+panel_data1 <- panel_data %>%
+  filter(country_id %in% random_numbers) %>%
+  select(country_id, country, GDP, gini, Dbar, Ubar, energy_service, lag_energy_service) %>%
+  filter(complete.cases(.)) %>%
+  ungroup()
+
+#### Read this for estimation
+#### https://encyclopedia.pub/entry/626
+#### https://rpubs.com/abbyhudak/nonlinreg
+
+ggplot(panel_data1, aes(y = log(energy_service), x = log(GDP), colour = country, group = country)) +
+  geom_point() +
+  #geom_smooth(method = "lm") +
+  labs(title = "GDP vs Energy Service", x = "GDP", y = "Energy Service") +
+  theme_minimal()
+
+###
+summary(panel_data1)
+panel_data1_df <- as.data.frame(panel_data1)
+sum(is.infinite(panel_data1_df))
+sum(is.na(panel_data1))
+sum(is.infinite(panel_data1))
+
+sapply(panel_data1, function(column) sum(is.infinite(column)))
+
+panel_data1$log_GDP <- scale(log(panel_data1$GDP))
+panel_data1$log_energy_service <- scale(log(panel_data1$energy_service))
+model1 <- nls(log_energy_service ~ SSgompertz(log_GDP, Asym, b2, b3),
+              data = panel_data1)
+
+model1 <- nls(log(energy_service) ~ SSgompertz(log(GDP), Asym, b2, b3),
+              data = panel_data1)
+
+summary(model1) # Watch standard errors and significance
+
+
+# Fit the model using nls with the self-starting function
+model1 <- nls(energy_service ~ SSgompertz(GDP, gamma, alpha, beta),
+              data = panel_data1,
+              na.action = na.omit)
+
+summary(model1) # Watch standard errors and significance
+
+# Define the Gompertz function
+gompertz_function <- function(x, gamma, alpha, beta) {
+  gamma * exp(alpha * exp(beta * log(x)))
+}
+
+# Generate data points
+x_values <- seq(1, 100000, by = 50)
+y_values <- gompertz_function(x_values, gamma = 6062, alpha = -3.424, beta = -1)
+
+# Create a data frame for plotting
+data <- data.frame(x = x_values, y = y_values)
+
+# Plot the Gompertz function
+ggplot(data, aes(x = x, y = y)) +
+  geom_line(color = "blue") +
+  labs(title = "Gompertz Function",
+       x = "X",
+       y = "Y") +
+  theme_minimal()
+
+
+
+
+
+
+
+
+# Define the self-starting Gompertz function with '...' argument
+SSgompertz <- selfStart(
+  function(GDP, gamma, alpha, beta, ...) {
+    gamma * exp(alpha * exp(beta * log(GDP)))
+  },
+  initial = function(mCall, LHS, data, ...) {
+    gamma <- max(data$energy_service, na.rm = TRUE)
+    alpha <- -1
+    beta <- -2
+    setNames(c(gamma, alpha, beta), c("gamma", "alpha", "beta"))
+  },
+  parameters = c("gamma", "alpha", "beta")
+)
+
+# Fit the model using nlsLM with the self-starting function
+nls_model <- nlsLM(
+  energy_service ~ SSgompertz(GDP, gamma, alpha, beta),
+  data = panel_data1,
+  control = nls.lm.control(maxiter = 1000, maxfev = 10000),
+  na.action = na.omit
+)
+
+summary(nls_model)
+
+# Simple NLS
+start_params <- c(gamma = 5000, alpha = -1, beta = -2)
+nls_model <- nlsLM(
+  energy_service ~ gamma * (exp(alpha * exp(beta * log(GDP)))),
+  data = panel_data1,
+  start = start_params,
+  na.action = na.omit
+)
+
+
+
+model1 <- nls(
+  energy_service ~ gamma * (exp(alpha * exp(beta * log(GDP)))),
+  data = panel_data1,
+  start = start_params,
+  na.action = na.omit
+)
+
+model1 <- nlme(
+  energy_service ~ gamma * (exp(alpha * exp(beta * log(GDP)))),
+  data = panel_data1,
+  fixed = gamma + alpha ~ 1,
+  random = beta ~ 1 | country_id,
+  start = start_params,
+  na.action = na.omit
+)
+
+
+
+
+nls_model <- nls(
+  energy_service ~ (gamma_max + lambda * Dbar + phi * Ubar) * (exp((alpha0 + alpha1 * gini) * exp(beta_i * log(GDP)))) +
+    (1 - lambda * Dbar - phi * Ubar) * lag_energy_service,
+  data = panel_data1,
+  start = list(gamma_max = 5000, lambda = 1, phi = 1, theta_R = 1, theta_F = 1, alpha0 = 1, alpha1 = 1, beta_i = 1),
+  na.action = na.omit
+)
+
+# Fit the model using nlsLM to get initial estimates
+nls_model <- nlsLM(
+  energy_service ~ (gamma_max + lambda * Dbar + phi * Ubar) * (exp((alpha0 + alpha1 * gini) * exp(beta_i * log(GDP)))) +
+    (1 - lambda * Dbar - phi * Ubar) * lag_energy_service,
+  data = panel_data1,
+  start = list(gamma_max = 5000, lambda = 1, phi = 1, theta_R = 1, theta_F = 1, alpha0 = 1, alpha1 = 1, beta_i = 1)
+)
+
+# Extract initial parameter estimates from nls
+start_params <- coef(nls_model)
+
+# Fit the model using nlme with initial estimates from nls
+model1 <- nlme(
+  energy_service ~ (gamma_max + lambda * Dbar + phi * Ubar) * (exp((alpha0 + alpha1 * gini) * exp(beta_i * log(GDP)))) +
+    (1 - lambda * Dbar - phi * Ubar) * Y_it_pred_lag,
+  data = panel_data,
+  fixed = gamma_max + lambda + phi + theta_R + theta_F + alpha0 + alpha1 ~ 1,
+  random = beta_i ~ 1 | country,
+  start = start_params,
+  na.action = na.omit
+)
+
+summary(model1)
+
+
+
+
+
+
+# Initial parameter estimates
+n.countries <- length(unique(panel_data$country))
+start_params <- c(gamma_max = 5000, lambda = 1, phi = 1, theta_R = 1, theta_F = 1, alpha0 = 1, alpha1 = 1)
+
+# Fit the model
+model1 <- nlme(
+  energy_service ~ (gamma_max + lambda * Dbar + phi * Ubar) * (exp ((alpha0 + alpha1 * gini) * exp(beta_i * log(GDP)))) +
+    (1 - lambda * Dbar - phi * Ubar) * lag(energy_service), 
+  data = panel_data,
+fixed = gamma_max + lambda + phi + theta_R + theta_F + alpha0 + alpha1 ~ 1,
+random = beta_i ~ 1 | country,
+start = start_params,
+na.action = na.omit
+)
+
+summary(model1)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+gompertz_model <- function(params, data) {
+  gamma_max <- params[1]
+  lambda <- params[2]
+  phi <- params[3]
+  theta_R <- params[4]
+  theta_F <- params[5]
+  alpha0 <- params[6]
+  alpha1 <- params[7]
+  beta_i <- params[8:length(params)]
+  
+  # Calculate the Gompertz model
+  saturation_level_it <- gamma_max + lambda * data$Dbar + phi * data$Ubar
+  alpha <- alpha0 + alpha1 * data$gini
+  exp_term <- exp(alpha * exp(beta_i * log(data$GDP)))
+  
+  Y_it_pred <- saturation_level_it * (theta_R * data$Rising + theta_F * data$Falling) * exp_term + 
+    (1 - theta_R * data$Rising - theta_F * data$Falling) * data$Y_it_pred_lag
+  
+  return(Y_it_pred)
+}
+
+# Example data
+panel_data <- data.frame(
+  country = factor(rep(1:10, each = 10)),
+  GDP = runif(100, 1, 100),
+  gini = runif(100, 0.2, 0.5),
+  Dbar = runif(100, 1, 10),
+  Ubar = runif(100, 1, 10),
+  Rising = runif(100, 0, 1),
+  Falling = runif(100, 0, 1),
+  energy_service = runif(100, 1, 100)
+)
+
+# Add lagged values of Y_it_pred
+panel_data <- panel_data %>%
+  group_by(country) %>%
+  mutate(Y_it_pred_lag = lag(energy_service))
+
+# Initial parameter estimates
+start_params <- c(gamma_max = 1, lambda = 1, phi = 1, theta_R = 1, theta_F = 1, alpha0 = 1, alpha1 = 1, beta_i = rep(1, 10))
+
+# Fit the model
+model1 <- nlme(
+  energy_service ~ (gamma_max + lambda * Dbar + phi * Ubar) * (exp ((alpha0 + alpha1 * gini) * exp(beta_i * log(data$GDP)))), 
+  panel_data),
+  data = panel_data,
+  fixed = gamma_max + lambda + phi + theta_R + theta_F + alpha0 + alpha1 ~ 1,
+  random = beta_i ~ 1 | country,
+  start = start_params
+)
+
+summary(model1)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+gompertz_model <- function(params, data, Y_it_pred_lag) {
+  gamma_max <- params[1]
+  lambda <- params[2]
+  phi <- params[3]
+  theta_R <- params[4]
+  theta_F <- params[5]
+  alpha0 <- params[6]
+  alpha1 <- params[7]
+  beta_i <- params[8:length(params)]
+  
+  # Calculate the Gompertz model
+  saturation_level_it <- gamma_max + lambda * data$Dbar + phi * data$Ubar
+  alpha <- alpha0 + alpha1 * data$gini
+  exp_term <- exp(alpha * exp(beta_i * log(data$GDP)))
+  
+  Y_it_pred <- saturation_level_it * (theta_R * data$Rising + theta_F * data$Falling) * exp_term + 
+    (1 - theta_R * data$Rising - theta_F * data$Falling) * Y_it_pred_lag
+  
+  return(Y_it_pred)
+}
+
+start_params <- c(gamma_max = 1, lambda = 1, phi = 1, Theta_R = 1, Theta_F = 1, alpha0 = 1, alpha1 = 1)
+
+
+model1 <- nlme(
+  energy_service ~ gompertz_model(params, panel_data),
+  data = panel_data,
+  fixed = gamma_max + lambda + phi + theta_R + theta_F + alpha0 + alpha1 ~ 1,
+  random = beta_i ~ 1 | country,
+  start = list(params = start_params)
+)
+
+
+# Specify nonlinear model with mixed effects (random effects for countries)
+
+
+
+gompertz_model <- function(params, data, Y_it_pred_lag) {
+  gamma_max <- params[1]
+  lambda <- params[2]
+  phi <- params[3]
+  theta_R <- params[4]
+  theta_F <- params[5]
+  alpha0 <- params[6]
+  alpha1 <- params[7]
+  beta_i <- params[8:length(params)]
+  
+  # Calculate the Gompertz model
+  saturation_level_it <- gamma_max + lambda * data$Dbar + phi * data$Ubar
+  alpha <- alpha0 + alpha1 * data$gini
+  exp_term <- exp(alpha * exp(beta_i * log(data$GDP)))
+  
+  Y_it_pred <- saturation_level_it * (theta_R * data$Rising + theta_F * data$Falling) * exp_term + 
+    (1 - theta_R * data$Rising - theta_F * data$Falling) * Y_it_pred_lag
+  
+  return(Y_it_pred)
+}
+
+gompertz_model <- function(params, data) {
+  gamma_max <- params[1]
+  lambda <- params[2]
+  phi <- params[3]
+  theta_R <- params[4]
+  theta_F <- params[5]
+  alpha0 <- params[6]
+  alpha1 <- params[7]
+  beta_i <- params[8:length(params)]
+
+  # Calculate the Gompertz model
+  saturation_level_it <- gamma_max + lambda * data$Dbar + phi * data$Ubar
+  alpha <- alpha0 + alpha1 * data$gini
+  exp_term <- exp(alpha * exp(beta_i * log(data$GDP)))
+  
+  Y_it_pred <- saturation_level_it * (theta_R * data$Rising + theta_F * data$Falling) * exp_term + 
+    (1 - theta_R * data$Rising - theta_F * data$Falling) * lag(data$Y_it_pred)
+  
+  return(Y_it_pred)
+
+}
+
+
+
+
+########################################################################################################################
+# Define the nonlinear model function
+gompertz_model <- function(params, data) {
+  gamma_max <- params[1]
+  lambda <- params[2]
+  phi <- params[3]
+  Theta_R <- params[4]
+  Theta_F <- params[5]
+  alpha0 <- params[6]
+  alpha1 <- params[7]
+  beta_i <- params[8]
+  
+  Dbar <- 1 # Example value, replace with actual data
+  Ubar <- 1 # Example value, replace with actual data
+  R_it <- 1 # Example value, replace with actual data
+  F <- 1 # Example value, replace with actual data
+  
+  alpha <- alpha0 + alpha1 * Gini_Coefficient
+  
+  (gamma_max + lambda * Dbar + phi * Ubar) * (Theta_R * R_it + Theta_F * F) * exp(alpha * exp(beta_i * GDP_it))
+}
+
+# Example data
+data <- data.frame(
+  country = factor(rep(1:10, each = 10)),
+  GDP_it = runif(100, 1, 100),
+  Gini_Coefficient = runif(100, 0.2, 0.5),
+  Y_it = runif(100, 1, 100)
+)
+
+# Initial parameter estimates
+start_params <- c(gamma_max = 1, lambda = 1, phi = 1, Theta_R = 1, Theta_F = 1, alpha0 = 1, alpha1 = 1)
+
+# Fit the model
+fit <- nlme(
+  Y_it ~ gompertz_model(c(gamma_max, lambda, phi, Theta_R, Theta_F, alpha0, alpha1, beta_i), GDP_it, Gini_Coefficient),
+  data = data,
+  fixed = gamma_max + lambda + phi + Theta_R + Theta_F + alpha0 + alpha1 ~ 1,
+  random = beta_i ~ 1 | country,
+  start = start_params
+)
+
+summary(fit)
+########################################################################################################################
 
 
 # Define the Gompertz model function
@@ -111,6 +804,7 @@ fit <- nls(
 
 # View the summary of the model fit
 summary(fit)
+
 
 
 

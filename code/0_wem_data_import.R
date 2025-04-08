@@ -255,9 +255,11 @@ wdi.data <- data %>%
 all.data <- wdi.data %>%
   left_join(enerserv.data, by = c("country_id" = "country_id", "year" = "year")) %>%
   select(country_id, country_name, iso3c, year, SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, energy_service) %>%
-  mutate(energy_service = as.numeric(energy_service) * 10 ^-3) %>% # Convert to billion vehicle km / year
+  mutate(energy_service = as.numeric(energy_service * 10 ^ 6)) %>% # Original units
   arrange(country_name, year) %>%
   as_tibble()
+
+all.data %>% filter(country_id == 1)
 
 ### Transform gdp from long to wide format
 gdp.pop.data.wider <- gdp.pop.data %>%
@@ -272,28 +274,59 @@ gdp.pop.data.wider <- gdp.pop.data %>%
 ### Merge with gdp.pop.data
 all.data1 <- all.data %>%
   left_join(gdp.pop.data.wider, by = c("country_id" = "country_id", "year" = "year")) %>%
-  select(country_id, country_name, iso3c, year, SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, energy_service, GDP_PPP_pcap, GDP_PPP) %>%
+  mutate(ES_pcap = energy_service / (Population * 10^3)) %>%
+  select(country_id, country_name, iso3c, year, SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, ES_pcap, energy_service, GDP_PPP_pcap, GDP_PPP) %>%
   #mutate(value = as.numeric(value)) %>%
   arrange(country_name, year) %>%
   as_tibble()
 
+all.data1 %>% filter(country_id == 1 & year == 2020)
+
+ggplotly(ggplot(all.data1, aes(y = ES_pcap, x = year, color = country_name)) +
+           geom_line()+
+           geom_point() +
+           #geom_smooth(method = "lm", se = FALSE) +
+           #labs(title = "Gini Coefficient vs Energy Service", y = "Energy Service", x = "Gini Coefficient") +
+           theme_bw() +
+           theme(legend.position = "none"))
+
+ggplotly(ggplot(all.data1, aes(y = log(ES_pcap), x = log(GDP_PPP_pcap), color = country_name)) +
+           geom_line()+
+           geom_point() +
+           #geom_smooth(method = "lm", se = FALSE) +
+           #labs(title = "Gini Coefficient vs Energy Service", y = "Energy Service", x = "Gini Coefficient") +
+           theme_bw() +
+           theme(legend.position = "none"))
+
+
 ### Plot scatter plot of Gini coefficient vs energy service
-ggplotly(ggplot(all.data1, aes(y = energy_service, x = SI.POV.GINI, color = country_name)) +
-  geom_point() +
+ggplotly(ggplot(all.data1, aes(y = log(energy_service), x = SI.POV.GINI, color = country_name)) +
+  geom_line()+
+           geom_point() +
   #geom_smooth(method = "lm", se = FALSE) +
   labs(title = "Gini Coefficient vs Energy Service", y = "Energy Service", x = "Gini Coefficient") +
   theme_bw() +
   theme(legend.position = "none"))
 
 ### Plot scatter plot of Energy Service as a function of GDP_PPP_pcap
-ggplotly(ggplot(all.data1, aes(y = energy_service, x = GDP_PPP_pcap, color = country_name)) +
-  geom_point() +
+ggplotly(ggplot(all.data1 %>% filter(country_id %in% c(1,11:21)), aes(y = (energy_service), x = log(GDP_PPP_pcap), color = country_name)) +
+  geom_line() +
+           geom_point() +
   #geom_smooth(method = "lm", se = FALSE) +
   labs(title = "GDP per capita vs Energy Service", y = "Energy Service", x = "GDP per capita") +
   theme_bw() +
   theme(legend.position = "none"))
 
-ggplotly(ggplot(all.data1, aes(y = energy_service, x = GDP_PPP, color = country_name)) +
+ggplotly(ggplot(all.data1 %>% filter(country_id %in% c(1:5,11:21)), aes(y = (energy_service), x = year, color = country_name)) +
+           geom_line() +
+           geom_point() +
+           #geom_smooth(method = "lm", se = FALSE) +
+           labs(title = "GDP per capita vs Energy Service", y = "Energy Service", x = "GDP per capita") +
+           theme_bw() +
+           theme(legend.position = "none"))
+
+ggplotly(ggplot(all.data1 %>% filter(country_id %in% c(1:10)), aes(y = log(energy_service), x = log(GDP_PPP), color = country_name)) +
+           geom_line()+
            geom_point() +
            #geom_smooth(method = "lm", se = FALSE) +
            labs(title = "GDP_PPP vs Energy Service", y = "Energy Service", x = "GDP_PPP") +
@@ -308,13 +341,15 @@ all.data.gompertz <- all.data1 %>%
   group_by(country_id) %>%
   arrange(year) %>%
   # Make all columns except country_id, country_name, iso3c, year numeric
-  mutate(across(c(SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, energy_service, GDP_PPP_pcap), as.numeric)) %>%
+  mutate(across(c(SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, energy_service, ES_pcap, GDP_PPP_pcap), as.numeric)) %>%
   mutate(lag_GDP_PPP_pcap = lag(GDP_PPP_pcap),
+         lag_ES_pcap = lag(ES_pcap),
          lag_energy_service = lag(energy_service),
          lag_Gini = lag(SI.POV.GINI),
          lag_density = lag(EN.POP.DNST),
          lag_urbanization = lag(SP.URB.TOTL.IN.ZS)) %>%
   ungroup() %>%
+  filter(GDP_PPP != 0) %>%
   arrange(country_id, year)
 
 ### Save to rds in data folder
