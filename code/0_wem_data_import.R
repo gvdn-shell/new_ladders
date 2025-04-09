@@ -319,7 +319,7 @@ ggplotly(ggplot(all.data1 %>% filter(country_id %in% c(1,11:21)), aes(y = (energ
   theme_bw() +
   theme(legend.position = "none"))
 
-ggplotly(ggplot(all.data1 %>% filter(country_id %in% c(1:5,11:21)), aes(y = (energy_service), x = year, color = country_name)) +
+ggplotly(ggplot(all.data1 %>% filter(country_id %in% c(1:5,11:21)), aes(y = (energy_service), x = GDP_PPP_pcap, color = country_name)) +
            geom_line() +
            geom_point() +
            #geom_smooth(method = "lm", se = FALSE) +
@@ -327,11 +327,61 @@ ggplotly(ggplot(all.data1 %>% filter(country_id %in% c(1:5,11:21)), aes(y = (ene
            theme_bw() +
            theme(legend.position = "none"))
 
-ggplotly(ggplot(all.data1 %>% filter(country_id %in% c(1:10)), aes(y = log(energy_service), x = log(GDP_PPP), color = country_name)) +
+ggplotly(ggplot(all.data1 %>% filter(country_id %in% c(1:10)), aes(y = (energy_service), x = log(GDP_PPP_pcap), color = country_name)) +
            geom_line()+
            geom_point() +
            #geom_smooth(method = "lm", se = FALSE) +
-           labs(title = "GDP_PPP vs Energy Service", y = "Energy Service", x = "GDP_PPP") +
+           labs(title = "GDP_PPP vs Energy Service", y = "Energy Service", x = "GDP_PPP_pcap") +
+           theme_bw() +
+           theme(legend.position = "none"))
+
+ggplotly(ggplot(all.data1 %>% filter(country_id %in% c(1:10)), aes(y = log(energy_service), x = log(GDP_PPP_pcap), color = country_name)) +
+           geom_line()+
+           geom_point() +
+           #geom_smooth(method = "lm", se = FALSE) +
+           labs(title = "GDP_PPP vs Energy Service", y = "Energy Service", x = "GDP_PPP_pcap") +
+           theme_bw() +
+           theme(legend.position = "none"))
+
+ggplotly(ggplot(all.data1, aes(y = log(energy_service), x = log(GDP_PPP_pcap), color = country_name)) +
+           geom_line()+
+           geom_point() +
+           #geom_smooth(method = "lm", se = FALSE) +
+           labs(title = "GDP_PPP vs Energy Service", y = "Energy Service", x = "GDP_PPP_pcap") +
+           theme_bw() +
+           theme(legend.position = "none"))
+
+ggplotly(ggplot(all.data1, aes(y = log(energy_service), x = log(GDP_PPP_pcap), color = country_name)) +
+          geom_line()+
+          geom_point() +
+          #geom_smooth(method = "lm", se = FALSE) +
+          labs(title = "GDP_PPP vs Energy Service", y = "Energy Service", x = "GDP_PPP_pcap") +
+          theme_bw() +
+          theme(legend.position = "none"))
+
+ggplotly(ggplot(all.data1, aes(y = (energy_service), x = (SI.POV.GINI), color = country_name)) +
+           geom_line()+
+           geom_point() +
+           #geom_smooth(method = "lm", se = FALSE) +
+           #labs(title = "GDP_PPP vs Energy Service", y = "Energy Service", x = "GDP_PPP_pcap") +
+           theme_bw() +
+           theme(legend.position = "none"))
+
+# Gately ES (per 1000 vehicles) versus GDP per capita
+
+ggplotly(ggplot(all.data1, aes(y = (ES_pcap), x = (GDP_PPP_pcap), color = country_name)) +
+           geom_line()+
+           geom_point() +
+           #geom_smooth(method = "lm", se = FALSE) +
+           labs(title = "GDP_PPP vs Energy Service", y = "Energy Service", x = "GDP_PPP_pcap") +
+           theme_bw() +
+           theme(legend.position = "none"))
+
+ggplotly(ggplot(all.data1, aes(y = (ES_pcap), x = log(GDP_PPP_pcap), color = country_name)) +
+           geom_line()+
+           geom_point() +
+           #geom_smooth(method = "lm", se = FALSE) +
+           labs(title = "GDP_PPP vs Energy Service", y = "Energy Service", x = "GDP_PPP_pcap") +
            theme_bw() +
            theme(legend.position = "none"))
 
