@@ -21,7 +21,8 @@ packages <- c("tidyverse",
               "nls2",
               "flexmix",
               "fastDummies",
-              "statforbiology") #
+              "statforbiology",
+              "conflicted") #
 installed_packages <- packages %in% rownames(installed.packages())
 
 if (any(!installed_packages)) {
@@ -47,6 +48,9 @@ showtext_auto()
 
 #Plot: need to open Windows graphics device as showtext does not work well with RStudio built-in graphics device
 # windows()
+
+conflict_prefer("select", "dplyr")
+conflict_prefer("filter", "dplyr")
 
 ##################################################################################################################################
 ### Load data
@@ -104,16 +108,196 @@ ggplotly(ggplot(panel_data, aes(y = GDP, x = year, colour = country, group = cou
   labs(title = "GDP over Time", x = "GDP", y = "Year") +
   theme_minimal())
 
+#### EDA
+
+
+p1 <- ggplot(data = panel_data, aes(x = (GDP), y = (ES_pcap), color = factor(country), group = factor(country))) +
+  #facet_wrap(facets = vars(cluster)) +
+  geom_line() +
+  geom_point() +
+  geom_text(data = subset(panel_data, !duplicated(country, fromLast = TRUE)),
+            aes(label = country), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02))  +
+  
+  labs(color = "Country", group = "Country",
+       title = "Countries by GDP per  capita and ES per capita",
+       y = "Energy Service per capita (vehichle km/ capita/ year)",
+       x = "GDP per capita (US$)") +theme_bw() + theme(
+         axis.title.y = element_text(size = 18, family = "ShellMedium"),
+         axis.title.x = element_text(size = 18, family = "ShellMedium"),
+         axis.text.y = element_text(size = 16, family = "ShellMedium"),
+         axis.text.x = element_text(size = 16, family = "ShellMedium"),
+         plot.margin = margin(l = 40, r = 40, t = 60, b = 40),
+         legend.position = "none", #c(1.05, 0.9),
+         legend.text = element_text(size = 18, family = "ShellMedium"),
+         legend.title = element_blank(),
+         legend.background = element_rect(fill = "white", color = "black"),
+         plot.background = element_rect(fill = "white"),
+         panel.background = element_rect(fill = "white"),
+         panel.grid.major = element_line(color = "gray", linetype = "dashed"),
+         panel.grid.minor = element_blank(),
+         plot.title = element_text(size = 18, family = "ShellMedium", hjust = 0.5),  # Center-align the title
+         plot.caption = element_blank(),
+         plot.subtitle = element_blank()
+       )
+
+
+ggsave(filename = here::here("plots", "pt_road_gdp_es.png"), plot = p1, width = 12, height = 12, dpi = 150)
+
+p1 <- ggplot(data = panel_data, aes(x = log(GDP), y = log(ES_pcap), color = factor(country), group = factor(country))) +
+  #facet_wrap(facets = vars(cluster)) +
+  geom_line() +
+  geom_point() +
+  geom_text(data = subset(panel_data, !duplicated(country, fromLast = TRUE)),
+            aes(label = country), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02))  +
+  
+  labs(color = "Country", group = "Country",
+       title = "Countries by GDP per  capita and ES per capita",
+       y = "Energy Service per capita (vehichle km/ capita/ year) (log)",
+       x = "GDP per capita (US$) (log)") +theme_bw() + theme(
+         axis.title.y = element_text(size = 18, family = "ShellMedium"),
+         axis.title.x = element_text(size = 18, family = "ShellMedium"),
+         axis.text.y = element_text(size = 16, family = "ShellMedium"),
+         axis.text.x = element_text(size = 16, family = "ShellMedium"),
+         plot.margin = margin(l = 40, r = 40, t = 60, b = 40),
+         legend.position = "none", #c(1.05, 0.9),
+         legend.text = element_text(size = 18, family = "ShellMedium"),
+         legend.title = element_blank(),
+         legend.background = element_rect(fill = "white", color = "black"),
+         plot.background = element_rect(fill = "white"),
+         panel.background = element_rect(fill = "white"),
+         panel.grid.major = element_line(color = "gray", linetype = "dashed"),
+         panel.grid.minor = element_blank(),
+         plot.title = element_text(size = 18, family = "ShellMedium", hjust = 0.5),  # Center-align the title
+         plot.caption = element_blank(),
+         plot.subtitle = element_blank()
+       )
+
+
+ggsave(filename = here::here("plots", "pt_road_gdp_es_log.png"), plot = p1, width = 12, height = 12, dpi = 150)
+
+p1 <- ggplot(data = panel_data, aes(x = (gini), y = log(ES_pcap), color = factor(country), group = factor(country))) +
+  #facet_wrap(facets = vars(cluster)) +
+  geom_line() +
+  geom_point() +
+  geom_text(data = subset(panel_data, !duplicated(country, fromLast = TRUE)),
+            aes(label = country), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02))  +
+  
+  labs(color = "Country", group = "Country",
+       title = "Countries by ES per  capita and Gini coefficient",
+       y = "Energy Service per capita (vehichle km/ capita/ year) (log)",
+       x = "Gini coefficient") +theme_bw() + theme(
+         axis.title.y = element_text(size = 18, family = "ShellMedium"),
+         axis.title.x = element_text(size = 18, family = "ShellMedium"),
+         axis.text.y = element_text(size = 16, family = "ShellMedium"),
+         axis.text.x = element_text(size = 16, family = "ShellMedium"),
+         plot.margin = margin(l = 40, r = 40, t = 60, b = 40),
+         legend.position = "none", #c(1.05, 0.9),
+         legend.text = element_text(size = 18, family = "ShellMedium"),
+         legend.title = element_blank(),
+         legend.background = element_rect(fill = "white", color = "black"),
+         plot.background = element_rect(fill = "white"),
+         panel.background = element_rect(fill = "white"),
+         panel.grid.major = element_line(color = "gray", linetype = "dashed"),
+         panel.grid.minor = element_blank(),
+         plot.title = element_text(size = 18, family = "ShellMedium", hjust = 0.5),  # Center-align the title
+         plot.caption = element_blank(),
+         plot.subtitle = element_blank()
+       )
+
+
+ggsave(filename = here::here("plots", "pt_road_es_log_gini.png"), plot = p1, width = 12, height = 12, dpi = 150)
+
+p1 <- ggplot(data = panel_data, aes(x = (gini), y = log(GDP), color = factor(country), group = factor(country))) +
+  #facet_wrap(facets = vars(cluster)) +
+  geom_line() +
+  geom_point() +
+  geom_text(data = subset(panel_data, !duplicated(country, fromLast = TRUE)),
+            aes(label = country), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02))  +
+  
+  labs(color = "Country", group = "Country",
+       title = "Countries by GDP per  capita and Gini coefficient",
+       y = "GDP per capita (vehichle km/ capita/ year) (log)",
+       x = "Gini coefficient") +theme_bw() + theme(
+         axis.title.y = element_text(size = 18, family = "ShellMedium"),
+         axis.title.x = element_text(size = 18, family = "ShellMedium"),
+         axis.text.y = element_text(size = 16, family = "ShellMedium"),
+         axis.text.x = element_text(size = 16, family = "ShellMedium"),
+         plot.margin = margin(l = 40, r = 40, t = 60, b = 40),
+         legend.position = "none", #c(1.05, 0.9),
+         legend.text = element_text(size = 18, family = "ShellMedium"),
+         legend.title = element_blank(),
+         legend.background = element_rect(fill = "white", color = "black"),
+         plot.background = element_rect(fill = "white"),
+         panel.background = element_rect(fill = "white"),
+         panel.grid.major = element_line(color = "gray", linetype = "dashed"),
+         panel.grid.minor = element_blank(),
+         plot.title = element_text(size = 18, family = "ShellMedium", hjust = 0.5),  # Center-align the title
+         plot.caption = element_blank(),
+         plot.subtitle = element_blank()
+       )
+
+
+ggsave(filename = here::here("plots", "pt_road_gdp_log_gini.png"), plot = p1, width = 12, height = 12, dpi = 150)
+
+
+
 #### Discard GDP outliers - discard data where countries have GDP > 100000 before 1980
-panel_data2 <- panel_data %>%
-  filter(!(GDP > 100000 & year < 1986)) 
+panel_data2 <- panel_data #%>%
+  #filter(!(GDP > 100000 & year < 1986))
 
 ggplotly(ggplot(panel_data2, aes(y = GDP, x = year, colour = country, group = country)) +
            geom_point() +
            geom_line() +
            #geom_smooth(method = "lm") +
-           labs(title = "GDP over Time", x = "GDP", y = "Year") +
+           labs(title = "GDP over Time", y = "GDP", x = "Year") +
            theme_minimal())
+
+ggplotly(ggplot(panel_data2, aes(y = log(ES_pcap), x = log(GDP), colour = country, group = country)) +
+           geom_point() +
+           geom_line() +
+           #geom_smooth(method = "lm") +
+           labs(title = "ES pcap vs GDP", x = "GDP", y = "ES pcap") +
+           theme_minimal())
+
+ggplotly(ggplot(panel_data2, aes(y = log(ES_pcap), x = log(gini), colour = country, group = country)) +
+           geom_point() +
+           geom_line() +
+           #geom_smooth(method = "lm") +
+           labs(title = "ES pcap vs GDP", x = "Gini", y = "ES pcap") +
+           theme_minimal())
+
+###### Countries to exclude
+# # #"Rest of" countries
+
+# # #Oil & gas countries -- Funny Money GDPcap does not reflect wealth - GDP almost solely as a function of oil price
+
+# # Define lists of countries to exclude
+# countries_to_exclude1 <- c("Iran", "Iraq", "Saudi Arabia", "Kuwait", "Qatar", "Oman", "Algeria",
+#                            "Syria", "Sudan", "Ecuador", "Yemen", "Angola", "Nigeria", "Venezuela")
+# 
+# # # From old ladder estimation
+# countries_to_exclude2 <- c("Iran", "Malaysia", "Algeria", "Syria", "Sudan", "Ecuador", "Yemen",
+#                            "Angola", "Nigeria", "Venezuela")
+# 
+# # #Former USSR, Eastern Europe, North Korea
+# ussr.countries <- c("Russia", "Uzbekistan", "Belarus", "Poland", "Romania", "Ukraine", "Bulgaria",
+#                     "Azerbaijan", "Kazakhstan", "Turkmenistan", "North Korea")
+# 
+# baltic.states <- c("Estonia", "Latvia", "Lithuania", "Baltic States")
+
+# 
+# Data_HI_Phs2 <- Data_HI_Phs2 %>% 
+#   dplyr::filter(!(Country %in% countries_to_exclude1)) %>%
+#   dplyr::filter(!(Country %in% ussr.countries & Year < 2000)) %>% # Remove USSR states before 1999
+#   dplyr::filter(!(Country %in% baltic.states)) %>%
+#   arrange(Country, Sector, Year)
+# 
+# Data_HI_Phs2.maturity <- Data_HI_Phs2.maturity %>%
+#   dplyr::filter(Country != "International marine bunkers" & !grepl("Rest of", Country, ignore.case = TRUE)) %>% 
+#   dplyr::filter(!(Country %in% countries_to_exclude1)) %>%
+#   dplyr::filter(!(Country %in% ussr.countries & Year < 2000)) %>% # Remove USSR states before 1999
+#   dplyr::filter(!(Country %in% baltic.states)) %>%
+#   arrange(Country, Sector, Year)
 ###########################################################################################
 
 # Fit the Gaussian mixture model using flexmix
@@ -138,15 +322,16 @@ cluster_data <- panel_data
 # summary(cluster_data)
 
 # # Define the clustering model
-# lcgaMix <- stepFlexmix(.~.|country_id,
-#   model = FLXMRglmfix(log(ES_pcap) ~ log(GDP)  + year, varFix=FALSE),
-#   data = cluster_data,
-#   k = 1:10,
-#   nrep = 200,
-#   control = list(iter.max = 500, minprior = 0)
-# )
-# 
-# saveRDS(lcgaMix, file = here("data", "pt_road_cluster_lcga.rds"))
+lcgaMix <- stepFlexmix(.~.|country_id,
+  model = FLXMRglmfix(log(ES_pcap) ~ log(GDP), #  log(ES_pcap) ~ log(GDP) + year,
+                      varFix=FALSE),
+  data = cluster_data,
+  k = 1:10,
+  nrep = 200,
+  control = list(iter.max = 500, minprior = 0)
+)
+# # 
+saveRDS(lcgaMix, file = here("data", "pt_road_cluster_lcga.rds"))
 
 
 lcgaMix <- readRDS(file = here::here("data", "pt_road_cluster_lcga.rds"))
@@ -200,9 +385,33 @@ p1 <- ggplot(data = cluster.data2, aes(x = log(GDP), y = log(ES_pcap), color = f
   labs(color = "Country", group = "Country",
        title = "Clusters of countries by GDP per capita and ES per capita",
        y = "log(Energy Service per capita)",
-       x = "log(GDP)") 
+       x = "log(GDP per capita)") 
 
 p1
+
+p1a <- p1 + theme_bw() + theme(
+  axis.title.y = element_text(size = 18, family = "ShellMedium"),
+  axis.title.x = element_text(size = 18, family = "ShellMedium"),
+  axis.text.y = element_text(size = 16, family = "ShellMedium"),
+  axis.text.x = element_text(size = 16, family = "ShellMedium"),
+  plot.margin = margin(l = 40, r = 40, t = 60, b = 40),
+  legend.position = "none", #c(1.05, 0.9),
+  legend.text = element_text(size = 18, family = "ShellMedium"),
+  legend.title = element_blank(),
+  legend.background = element_rect(fill = "white", color = "black"),
+  plot.background = element_rect(fill = "white"),
+  panel.background = element_rect(fill = "white"),
+  panel.grid.major = element_line(color = "gray", linetype = "dashed"),
+  panel.grid.minor = element_blank(),
+  plot.title = element_text(size = 18, family = "ShellMedium", hjust = 0.5),  # Center-align the title
+  plot.caption = element_blank(),
+  plot.subtitle = element_blank()
+)
+
+p1a
+
+ggsave(filename = here::here("plots", "pt_road_mixture_k3_patterns.png"), plot = p1a, width = 12, height = 12, dpi = 150)
+  
 p2 <- ggplotly(p1 + theme(
   axis.title.y = element_text(size = 18, family = "ShellMedium"),
   axis.title.x = element_text(size = 18, family = "ShellMedium"),
@@ -230,7 +439,6 @@ htmlwidgets::saveWidget(p2, file = here::here("plots", "pt_road_mixture_patterns
 ###############################
 result <- cluster.data2
 
-library(fastDummies)
 result <- dummy_cols(result, select_columns = "cluster")
 
 s.curve.data <- result %>%
@@ -283,15 +491,79 @@ getMeanFunctions()
 model <- nls(log(ES_pcap) ~ NLS.E4(log(GDP), b, c, d, e) , data = s.curve.data %>% filter(cluster == 1), 
              control = control_list, na.action = na.omit)
 
-model <- drm((ES_pcap) ~(GDP), fct = W2.4(), data  = s.curve.data, #%>% filter(cluster == 3), 
+model <- drm(log(ES_pcap) ~log(GDP), fct = W1.4(), data  = s.curve.data %>% filter(cluster == 3), 
              na.action = na.omit)
 
 summary(model) # check standard errors and significance as well as overall fit
 
-plot(model, log ="", main = "Weibull 4-parameters")
+plot(model, log ="", main = "Weibull 4-parameters (Cluster 3)")
 # Use the control argument to pass the control list to nlsList
 (m <- nls(log(ES_pcap) ~ SSgompertz(log(GDP), Asym, b2, b3) , data = s.curve.data, 
               control = control_list, na.action = na.omit))
+
+
+#############################
+### NLME model for random effects
+data <- data.frame(
+  country_id = rep(1:3, each = 5),
+  ES_pcap_it = c(2.3, 2.8, 3.6, 4.5, 5.1, 2.1, 2.6, 3.4, 4.2, 4.8, 2.5, 3.0, 3.8, 4.6, 5.3),
+  Gini_it = c(0.3, 0.32, 0.34, 0.36, 0.38, 0.31, 0.33, 0.35, 0.37, 0.39, 0.29, 0.31, 0.33, 0.35, 0.37),
+  GDP_it = c(1.5, 1.6, 1.7, 1.8, 1.9, 1.4, 1.5, 1.6, 1.7, 1.8, 1.3, 1.4, 1.5, 1.6, 1.7)
+)
+
+# Define the model function
+model_function <- function(Gini_it, GDP_it, gamma, alpha0, alpha1, beta) {
+  gamma * exp((alpha0 + alpha1 * Gini_it) * exp(beta * GDP_it))
+}
+# Get initial guesses for parameters
+
+(m <- nls(log(ES_pcap) ~ SSgompertz(log(GDP), Asym, b2, b3) , data = s.curve.data, 
+          control = control_list, na.action = na.omit))
+
+coefficients <- coef(m)
+
+asym_start <- unlist(coefficients[1])
+
+fit <- nlme(
+  log(ES_pcap) ~ gamma * exp((alpha0 + alpha1 * gini) * exp(beta * log(GDP))),
+  data = s.curve.data,
+  fixed = gamma + alpha0 + alpha1 ~ 1,
+  random = beta ~ 1 | country_id,
+  na.action = na.omit,
+  start = c(gamma = asym_start, alpha0 = 15.0892675, alpha1 = 0.6817013)
+)
+
+# Fit the model using nlme
+fit <- nlme(
+  log(ES_pcap) ~ model_function(gini, log(GDP), gamma, alpha0, alpha1, beta),
+  data = s.curve.data,
+  fixed = gamma + alpha0 + alpha1 ~ 1,
+  random = beta ~ 1 | country_id,
+  na.action = na.omit,
+  start = c(gamma = 1, alpha0 = 0.1, alpha1 = 0.1)
+)
+
+# Summary of the model
+summary(fit)
+
+
+
+##############################
+
+# Define the model function
+model_function <- function(country_id, ES_pcap_it, Gini_it, GDP_it, gamma, alpha0, alpha1, beta) {
+  gamma * exp((alpha0 + alpha1 * Gini_it) * exp(beta[country_id] * GDP_it))
+}
+
+# Initial parameter guesses
+start_params <- list(gamma = 1, alpha0 = 0.1, alpha1 = 0.1)
+
+# Fit the model
+fit <- nls(log(ES_pcap) ~ model_function(country_id, ES_pcap, gini, log(GDP), gamma, alpha0, alpha1, beta),
+           data = s.curve.data, start = start_params)
+
+# Summary of the model
+summary(fit)
 
 (m <- nls(log(ES_pcap) ~ SSgompertz(log(GDP), Asym, b2, b3) , data = s.curve.data %>% filter(cluster == 1), 
           control = control_list, na.action = na.omit))
