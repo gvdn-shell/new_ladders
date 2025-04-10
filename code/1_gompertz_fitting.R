@@ -22,7 +22,8 @@ packages <- c("tidyverse",
               "flexmix",
               "fastDummies",
               "statforbiology",
-              "conflicted") #
+              "conflicted",
+              "saemix") #
 installed_packages <- packages %in% rownames(installed.packages())
 
 if (any(!installed_packages)) {
@@ -57,6 +58,13 @@ conflict_prefer("filter", "dplyr")
 
 all.data <- readRDS( here::here("data", "all_data_wem.rds"))
 
+###################################################################################################################################################
+### New variable names still need to be incorporated below
+####################################################################################################################################################
+
+########
+# Update below
+########
 panel_data <- all.data %>%
   rename(
     country = country_name,
@@ -298,6 +306,204 @@ ggplotly(ggplot(panel_data2, aes(y = log(ES_pcap), x = log(gini), colour = count
 #   dplyr::filter(!(Country %in% ussr.countries & Year < 2000)) %>% # Remove USSR states before 1999
 #   dplyr::filter(!(Country %in% baltic.states)) %>%
 #   arrange(Country, Sector, Year)
+
+###########################################################################################
+
+# Fit initial Gompertz using nls to data to get initial values
+# Fit the model using nls
+model1 <- nls(log(ES_pcap) ~ SSgompertz(log(GDP), Asym, b, c),
+              data = panel_data2,
+              #start = list(Asym = 1, b = 0.1, c = 0.1),
+              control = list(maxiter = 1000))
+
+
+
+# Step 1: Define the panel_select data frame
+panel_select <- panel_data2 %>%
+  mutate(GDP = log(GDP), ES_pcap = log(ES_pcap)) %>%
+  select(id = country_id, year, GDP , Dbar, Ubar, Rising, Falling, ES_pcap) %>%
+  ungroup() %>%
+  group_by(id) %>%
+  arrange(id, year) %>%
+  mutate(lag_ES_pcap = dplyr::lag(ES_pcap, 1)) %>%
+  ungroup() %>%
+  filter(complete.cases(.)) #%>%
+  #filter(id %in% c(1:20), !id %in% c(15,16))
+
+summary(panel_select)
+
+ggplotly(ggplot(panel_select, aes(y = (ES_pcap), x = (GDP), colour = factor(id), group = factor(id))) +
+           geom_point() +
+           geom_line() +
+           #geom_smooth(method = "lm") +
+           labs(title = "ES pcap vs GDP", x = "GDP", y = "ES pcap") +
+           theme_minimal())
+
+
+gamma_max_usa <- max(panel_select$ES_pcap) * 1.1
+
+
+glimpse(panel_select)
+# Step 3: Create the saemix.data object
+saemix.data <- saemixData(name.data = panel_select, header = TRUE, sep = ",", na = NA,
+                          name.group = c("id"), name.predictors = c("GDP", "Dbar", "Ubar", "Rising", "Falling", "lag_ES_pcap"),
+                          name.response = c("ES_pcap"), #name.covariates = c("country"),
+                          units = list(x = c("GDP", "Dbar", "Ubar", "Rising", "Falling", "lag_ES_pcap"), y = "ES_pcap"),
+                          name.X = "GDP")
+
+# Step 2: Define the model1gately function - aligned with saemix data
+model1gately <- function(beta, id, x) {
+  gamma_max <- gamma_max_usa
+  lambda <- beta[id, 1]
+  phi <- beta[id, 2]
+  theta_r <- beta[id, 3]
+  theta_f <- beta[id, 4]
+  alpha <- beta[id, 5]
+  delta <- beta[id, 6]
+  
+  
+  gdp <- x[, 2]
+  dbar <- x[, 3]
+  ubar <- x[, 4]
+  rising <- x[,5]
+  falling <- x[, 6]
+  lagged_ES_pcap <- x[, 7]
+  
+  ypred <- (gamma_max + lambda * dbar + phi * ubar) *
+    (theta_r * rising + theta_f * falling) *
+    exp(alpha * exp(delta * gdp)) + (1 - theta_r * rising - theta_f * falling) * lagged_ES_pcap
+  
+  return(ypred)
+}
+
+# Step 4: Create the matrix_6x6 matrix
+matrix_6x6 <- matrix(0, nrow = 6, ncol = 6)
+matrix_6x6[6, 6] <- 1
+
+# Use Gately for initial guesses
+
+# Step 5: Define the saemix.model object with consistent dimensions
+saemix.model <- saemixModel(model = model1gately, modeltype = "structural",
+                            description = "Gately model with first-order absorption",
+                            psi0 = matrix(c(-1, -1, 0.1, 0.1, -3, -0.2), ncol = 6, byrow = TRUE,
+                                          dimnames = list(NULL, c("lambda", "phi", "theta_r", "theta_f", "alpha", "delta"))), # Initial guesses
+                            transform.par = c(1, 1, 1, 1, 1, 1),
+                            covariate.model = matrix(c(0, 0, 0, 0, 0, 0), ncol = 6, byrow = TRUE),
+                            fixed.estim = c(1, 1, 1, 1, 1, 1),
+                            covariance.model = matrix_6x6,
+                            omega.init = diag(6), # Ensure omega.init is a square matrix
+                            error.model = "constant")
+
+# Check the saemix.model object
+
+saemix_fit1    <- saemix(saemix.model, saemix.data)
+psi <- psi(saemix_fit1)
+print(psi)
+
+# Create smart sampling range
+
+summary(model1)
+
+# Define the ranges for each parameter
+lambda_range <- seq(-0.5*10, 0, by = 0.0001)
+phi_range <- seq(-0.1*10, 0, by = 0.0001)
+alpha_range <- seq(-15*10, 0, by = 0.05)
+theta_r_range <- seq(0, 1*10, by = 0.01)
+theta_f_range <- seq(0, 1*10, by = 0.01)
+delta_range <- seq(-1*10, 0, by = 0.01)
+
+
+# Set the number of samples
+n_samples <- 1000
+
+# Initialize a data frame to store the samples
+samples <- data.frame(lambda = numeric(n_samples), phi = numeric(n_samples),
+                      theta_r = numeric(n_samples), theta_f = numeric(n_samples), alpha = numeric(n_samples), delta = numeric(n_samples))
+
+# Draw n samples
+set.seed(42) # For reproducibility
+for (i in 1:n_samples) {
+  samples$lambda[i] <- sample(lambda_range, 1)
+  samples$phi[i] <- sample(phi_range, 1)
+  samples$theta_r[i] <- sample(theta_r_range, 1)
+  samples$theta_f[i] <- sample(theta_f_range, 1)
+  samples$alpha[i] <- sample(alpha_range, 1)
+  samples$delta[i] <- sample(delta_range, 1)
+}
+
+# Display the first few rows of the samples
+head(samples)
+
+samples_matrix <- as.matrix(samples)
+
+dimnames(samples_matrix) <- NULL
+
+
+saemix.model <- saemixModel(model = model1gately, modeltype = "structural",
+                            description = "Gately model with first-order absorption",
+                            psi0 = matrix(samples_matrix[1,], ncol = 6, byrow = TRUE,
+                                          dimnames = list(NULL, c("lambda", "phi", "theta_r", "theta_f", "alpha", "delta"))), # Initial guesses
+                            transform.par = c(1, 1, 1, 1, 1, 1),
+                            #covariate.model = matrix(c(0, 0, 0, 0, 0, 0), ncol = 6, byrow = TRUE),
+                            fixed.estim = c(1, 1, 1, 1, 1, 1),
+                            covariance.model = matrix_6x6,
+                            omega.init = diag(6), # Ensure omega.init is a square matrix
+                            error.model = "constant")
+
+# Check the saemix.model object
+
+saemix_fit1    <- saemix(saemix.model, saemix.data)
+
+# # Define the range and increment for psi0
+# psi0_range <- seq(-100, 100, by = 0.01)
+# 
+# # Sample a subset of combinations (e.g., 1000 random combinations)
+# set.seed(42) # For reproducibility
+# sampled_combinations <- replicate(6, sample(psi0_range, 10000, replace = TRUE))
+
+# Initialize a variable to store the first successful model fit
+successful_model <- NULL
+
+# Loop over the sampled combinations and attempt to fit the model
+for (i in 1:nrow(samples_matrix)) {
+  psi0 <- samples_matrix[i, ]
+  
+  saemix.model <- saemixModel(model = model1gately, modeltype = "structural",
+                              description = "Gately model with first-order absorption",
+                              psi0 = matrix(psi0, ncol = 6, byrow = TRUE,
+                                            dimnames = list(NULL, c("lambda", "phi", "theta_r", "theta_f", "alpha", "delta"))),
+                              transform.par = c(1, 1, 1, 1, 1, 1),
+                              covariate.model = matrix(c(0, 0, 0, 0, 0, 0), ncol = 6, byrow = TRUE),
+                              fixed.estim = c(1, 1, 1, 1, 1, 1),
+                              covariance.model = matrix_6x6,
+                              omega.init = diag(6), # Ensure omega.init is a square matrix
+                              error.model = "constant")
+  saemix_options <- list(map=TRUE, fim=TRUE, ll.is=FALSE, 
+                         displayProgress=FALSE, save=FALSE, seed=632545)
+  
+  # Attempt to fit the model
+  saemix_fit <- try(saemix(saemix.model, saemix.data, saemix_options), silent = TRUE)
+  
+    # Check if the model fit was successful
+  if (!inherits(saemix_fit, "try-error")) {
+    successful_model <- saemix_fit
+    print("Model fit successful with psi0 values:")
+    print(psi0)
+    break
+    
+  }
+}
+
+
+# Check if a successful model was found
+if (!is.null(successful_model)) {
+  print("First successful model fit stored.")
+} else {
+  print("No successful model fit found.")
+}
+
+#################################################################################################
+
 ###########################################################################################
 
 # Fit the Gaussian mixture model using flexmix
