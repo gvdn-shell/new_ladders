@@ -42,6 +42,10 @@ showtext_auto()
 #Plot: need to open Windows graphics device as showtext does not work well with RStudio built-in graphics device
 windows()
 
+conflicts_prefer(dplyr::lag)
+conflicts_prefer(dplyr::select)
+conflicts_prefer(dplyr::filter)
+
 #####################################################################################################################
 ####################################################################################################
 
@@ -400,9 +404,19 @@ all.data.gompertz <- all.data1 %>%
          lag_Gini = lag(SI.POV.GINI),
          lag_density = lag(EN.POP.DNST),
          lag_urbanization = lag(SP.URB.TOTL.IN.ZS)) %>%
+  rename(
+    #ES = energy_service,
+    #ES_pcap = ES_pcap,
+    #GDP_PPP = GDP_PPP_pcap,
+    Gini = SI.POV.GINI,
+    density_psqkm = EN.POP.DNST,
+    urbanization_perc = SP.URB.TOTL.IN.ZS
+  ) %>%
   ungroup() %>%
   filter(GDP_PPP != 0) %>%
   arrange(country_id, year)
 
 ### Save to rds in data folder
 saveRDS(all.data.gompertz, here::here("data", "all_data_wem.rds"))
+write_csv(all.data.gompertz, here::here("data", "all_data_wem.csv"))
+
