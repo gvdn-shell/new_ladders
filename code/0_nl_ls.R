@@ -1,3 +1,6 @@
+### https://www.youtube.com/watch?v=Kln0ZQ7sX8k
+
+
 library(ggplot2)
 
 # Define Jacobian matrix calculation
@@ -250,3 +253,45 @@ scatterplot3d(X[, 1], X[, 2], y, pch = 16, highlight.3d = TRUE,
 # Fit model using Gauss-Newton
 result4 <- General_Gauss_Newton(nl_function4, X, y, c(3, 1, 1), 1e-5, 10)
 # Plot the data and the fitted model
+
+
+###############################################
+
+# Gompertz_Gately <- function(b, X, country_dummies) {
+#   # Assuming country_dummies is a matrix where each column represents a dummy variable for a country
+#   country_effect <- rowSums(country_dummies * b[8:length(b)])
+#   
+#   return((b[1] + b[2] * X[,1] + b[3] * X[,2]) * (b[4] * X[,3] + b[5] * X[,4]) * 
+#            exp(b[6] * exp((b[7] + country_effect) * X[,5])))
+# }
+# 
+# Gompertz_Gately <- function(b, X) {
+#   return((b[1] + b[2] * X[,1] + b[3] * X[,2]) * (b[4] * X[,3] + b[5] * X[,4]) * 
+#            exp(b[6] * exp (b[7] * X[,5])))
+# }
+# # Generate data from real model
+# x1 <- seq(0, 5, length.out = 50)
+# x2 <- seq(0, 5, length.out = 50)
+# x3 <- seq(0, 5, length.out = 50)
+# x4 <- seq(0, 5, length.out = 50)
+# x5 <- seq(0, 5, length.out = 50)
+# # Create a grid of coordinates
+# grid <- expand.grid(x1, x2, x3, x4, x5)
+# # Combine the grid into a matrix
+# X <- cbind(grid[, 1], grid[, 2], grid[, 3], grid[, 4], grid[, 5])
+# # Generate data
+# y <- Gompertz_Gately(c(1, 2, 3, 4, 5, 6, 7), X) + rnorm(nrow(X), 0, 1)
+# # Plot 3D plot of y versus X
+# scatterplot3d(X[, 1], X[, 2], y, pch = 16, highlight.3d = TRUE,
+#               main = "3D Scatterplot of y vs X",
+#               xlab = "X1", ylab = "X2", zlab = "y")
+# # Fit model using Gauss-Newton
+# result5 <- General_Gauss_Newton(Gompertz_Gately, X, y, c(1, 1, 1, 1, 1, 1, 1), 1e-5, 10)
+# # Plot the data and the fitted model
+# ggplot(data.frame(X, y), aes(X1, X2)) +
+#   geom_point(aes(color = y)) +
+#   geom_contour(aes(z = Gompertz_Gately(result5, X)), color = "red") +
+#   labs(title = "Data from real model y = (b[1] + b[2] * x1 + b[3] * x2) * (b[4] * x3 + b[5] * x4) * exp(b[6] * exp (b[7] * x5))",
+#        x = "x1",
+#        y = "x2") +
+#   theme_minimal()
