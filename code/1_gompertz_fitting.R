@@ -57,6 +57,153 @@ conflict_prefer("filter", "dplyr")
 ### Load data
 
 all.data <- readRDS( here::here("data", "all_data_wem.rds"))
+################################################################################
+# Themes and colours
+
+### theme for plotting
+create_theme <- function(rel.size = 1) {
+  theme(
+    axis.title.y = element_text(size = 18 * rel.size, family = "ShellMedium"),
+    axis.title.x = element_text(size = 18 * rel.size, family = "ShellMedium"),
+    axis.text.y = element_text(size = 16 * rel.size, family = "ShellMedium"),
+    axis.text.x = element_text(size = 16 * rel.size, family = "ShellMedium", angle = 45, hjust = 1),
+    plot.margin = margin(l = 5, r = 5, t = 5, b = 5),
+    legend.title = element_text(family = "ShellMedium", size = 16 * rel.size),
+    legend.position = "top",
+    legend.text = element_text(size = 15 * rel.size, family = "ShellMedium"),
+    legend.background = element_rect(fill = "white", color = "black"),
+    plot.background = element_rect(fill = "white"),
+    panel.background = element_rect(fill = "white"),
+    panel.grid.major = element_line(color = "gray", linetype = "dashed"),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(size = 18 * rel.size, family = "ShellMedium", hjust = 0.5),
+    plot.caption = element_blank(),
+    plot.subtitle = element_blank(),
+    strip.text = element_text(size = 16 * rel.size, family = "ShellMedium"),
+    strip.background = element_rect(fill = "lightgray", color = "black"),
+    panel.border = element_blank()
+    
+  )
+}
+
+#### colour imports
+
+# shell.brand.palette <- readxl::read_excel(here::here("data", "Shell Scenarios v14.6 2023_06_23.xlsm"), sheet = "Settings",
+#                                           range = "D10:E50", col_names = TRUE) %>%
+#   dplyr::select(-Colour)
+# 
+# saveRDS(shell.brand.palette, here::here("data", "shell_brand_palette.rds"))
+# Load the shell.brand.palette data frame
+shell.brand.palette <- readRDS(here::here("data", "shell_brand_palette.rds"))
+
+shell.brand.palette.hex <- shell.brand.palette %>%
+  mutate(Hex = paste0("#", Hex)) %>%
+  mutate(country_id = row_number()) %>% 
+  left_join(all.data %>% select(country_id, country_name), by = "country_id") 
+
+#############################################
+#### ES versus log(GDP) plot looks good
+
+filtered_data <- all.data %>%
+  filter(year > 1970, country_id <= 40) %>%
+  arrange(country_id, year) # Sort by country_id and year
+
+
+
+# Join filtered_data with shell.brand.palette.hex to ensure correct color mapping
+filtered_data <- filtered_data %>%
+  left_join(shell.brand.palette.hex , by = c("country_id", "country_name")) %>%
+  mutate(log_GDP_pcap = log(GDP_PPP_pcap)) %>%
+  filter(!is.na(ES_pcap) & !is.na(log_GDP_pcap) & !is.infinite(ES_pcap) & !is.infinite(log_GDP_pcap))
+
+summary(filtered_data)
+
+#####################################
+
+# Fit the Gompertz model to the entire dataset
+gompertz_fit <- nls(ES_pcap ~ SSgompertz(log_GDP_pcap, Asym, b, c), 
+                    data = filtered_data, 
+                    #start = list(Asym = 1, b = 0.1, c = 0.1), 
+                    control = nls.control(maxiter = 1000))
+summary(gompertz_fit)
+
+# Plot
+
+# Create a data frame with the fitted values
+fitted_values <- data.frame(log_GDP_pcap = filtered_data$log_GDP_pcap, 
+                            ES_pcap = predict(gompertz_fit))
+
+# Plot with the fitted Gompertz curve
+p1 <- ggplot(filtered_data, aes(y = ES_pcap, x = log_GDP_pcap, colour = Hex)) +
+  geom_point(aes(group = country_id)) +
+  geom_line(aes(group = country_id)) +
+  theme_bw() + create_theme(2) +
+  geom_text(data = subset(filtered_data, !duplicated(country_name, fromLast = TRUE)),
+            aes(label = country_name), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02),
+            size = rel(8)) +
+  theme(legend.position = "none") +
+  labs(title = "Aggregate Energy Service Ladder: Passenger Transport Road Energy Service vs GDP", x = "GDP PPP (US$ 2018) (log)", y = "vehicle km/ capita/ year") +
+  scale_color_identity() +
+  # Add Gompertz line and add label saying Gompertz Model fit
+  geom_line(data = fitted_values, aes(x = log_GDP_pcap, y = ES_pcap), color = "black", linetype = "solid", linewidth = 2) #+
+  #annotate("text", x = max(fitted_values$log_GDP_pcap) - 0.5, y = max(fitted_values$ES_pcap) - 0.5, 
+  #         label = "Gompertz Model Fit", color = "black", size = 10, hjust = 1, vjust = 1) 
+
+# Save p1 to png
+ggsave(filename = here::here("plots", "pt_road_gdp_es.png"), plot = p1, width = 10, height = 6.3, dpi = 250)
+
+## Prop TFC that is PTR
+p3 <- ggplotly(ggplot(filtered_data, aes(y = prop_TFC_PTR, x = year, colour = Hex)) +
+  geom_point(aes(group = country_id)) +
+  geom_line(aes(group = country_id)) +
+  theme_bw() + create_theme(2) +
+  geom_text(data = subset(filtered_data, !duplicated(country_name, fromLast = TRUE)),
+            aes(label = country_name), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02),
+            size = rel(8)) +
+  #theme(legend.position = "none") +
+    # Ensure that legend displays the country names
+  scale_color_manual(values = shell.brand.palette.hex$Hex, labels = shell.brand.palette.hex$country_id) +
+    
+  labs(title = "TFC in PT - Road as Proportion of Total TFC", x = "Year", y = "Proportion Total TFC") #+
+  #scale_color_identity()
+  ) 
+
+p3
+
+
+# Plot with country names in the legend and colour country_name label according to Hex
+
+p3 <- ggplot(filtered_data, aes(y = prop_TFC_PTR, x = year, colour = Hex)) +
+  geom_point(aes(group = country_id)) + #, colour = country_name
+  geom_line(aes(group = country_id)) + #, colour = country_name
+  theme_bw() + create_theme(2) +
+  geom_text(data = subset(filtered_data, !duplicated(country_name, fromLast = TRUE)),
+            aes(label = country_name), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02),
+            size = rel(8)) +
+  labs(title = "TFC in PT - Road as Proportion of Total TFC", x = "Year", y = "Proportion Total TFC") +
+  scale_color_identity() 
+  scale_color_manual(values = setNames(shell.brand.palette.hex$Hex, shell.brand.palette.hex$country_name))
+
+# Convert to plotly
+p3a <- ggplotly(p3)
+
+p3
+
+ggsave(filename = here::here("plots", "pt_road_prop_tf.png"), plot = p3, width = 10, height = 6.3, dpi = 250)
+
+# save p3 to interactive html ggplotly
+
+htmlwidgets::saveWidget(p3a, file = here::here("plots", "pt_road_prop_tfc.html"), selfcontained = TRUE)
+
+
+
+ggplotly(p3)
+
+View(filtered_data %>%
+       filter(year == 1995 & prop_TFC_PTR > 27 & prop_TFC_PTR < 28)) 
+
+View(filtered_data %>%
+       filter(country_name == "Thailand")) 
 
 ###################################################################################################################################################
 ### New variable names still need to be incorporated below
