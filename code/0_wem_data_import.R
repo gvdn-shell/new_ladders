@@ -15,7 +15,7 @@ packages <- c("tidyverse",
               "DBI","odbc","readxlsb","RODBC",
               "WDI",
               "openxlsx",
-              "plotly") #
+              "plotly", "conflicted") #
 installed_packages <- packages %in% rownames(installed.packages())
 
 if (any(!installed_packages)) {
@@ -41,6 +41,10 @@ showtext_auto()
 
 #Plot: need to open Windows graphics device as showtext does not work well with RStudio built-in graphics device
 windows()
+
+conflicts_prefer(dplyr::lag)
+conflicts_prefer(dplyr::select)
+conflicts_prefer(dplyr::filter)
 
 #####################################################################################################################
 ####################################################################################################
@@ -109,16 +113,20 @@ enerserv.data <- enerserv.data %>%
   ungroup() %>%
   as_tibble()
 
-# # # Energy demand data (TFC1): Units as per WEM (Sector by carrier)/ TFC2 Carrier by source
-# tfc.enerdem.query <- paste0(
-#   "SELECT [run_id], [data_type], [sector_id], [carrier_id], [country_id], [year], [demand]",
-#   " FROM [WEMv3_1].[energy_demand]",
-#   " WHERE [year] <= ", max_year,
-#   " AND [run_id] = (SELECT MAX([run_id]) FROM [WEMv3_1].[energy_service])", # Ensure consistency of run_id selected
-#   " AND [data_type] = 'TFC1'",
-#   " AND [sector_id] IN (", max_sector_id, ")"
-# )
-# tfc.enerdem.data <- queryDB(tfc.enerdem.query)
+# # Energy demand data (TFC1): Units as per WEM (Sector by carrier)/ TFC2 Carrier by source
+tfc.enerdem.query <- paste0(
+  "SELECT [run_id], [data_type], [sector_id], [carrier_id], [country_id], [year], [demand]",
+  " FROM [WEMv3_1].[energy_demand]",
+  " WHERE [year] <= ", max_year,
+  " AND [run_id] = (SELECT MAX([run_id]) FROM [WEMv3_1].[energy_service])", # Ensure consistency of run_id selected
+  " AND [data_type] = 'TFC1'"#,
+  #" AND [sector_id] IN (", max_sector_id, ")"
+)
+tfc.enerdem.data <- queryDB(tfc.enerdem.query)
+
+summary(tfc.enerdem.data)
+
+table(tfc.enerdem.data$data_type)
 # 
 # # Population and GDP data
 gdp.pop.query <- paste0(
@@ -177,31 +185,35 @@ dbDisconnect(conn)
 #####################################################################################################################
 #### Import country names and mappings
 # Specify the path to your Excel file
-excel_file <- here::here("data", "Shell WEM - A Settings v3.4.1.xlsx")
+# excel_file <- here::here("data", "Shell WEM - A Settings v3.4.1.xlsx")
+# 
+# # Create a vector of named regions
+# named_regions <- c("A_WEM_Countries_Mapped", 
+#                    "A_IEA_Countries_Mapped", 
+#                    "A_WEM_Top_100_Classification_Mapped", 
+#                    "A_ISO_3_letter_code_Mapped")
+# 
+# # Read each named region into a list of data frames
+# country_mappings_list <- lapply(named_regions, function(region) {
+#   # Read data without column names
+#   df <- read.xlsx(excel_file, namedRegion = region, skipEmptyRows = FALSE, colNames = FALSE)
+#   
+#   # Assuming each region results in one main data column
+#   # Set the name of the column to the region name
+#   # If there are multiple columns, consider appending index or specific identifiers
+#   colnames(df) <- region
+#   
+#   return(df)
+# })
+# 
+# # Combine all data frames into one by columns
+# all.country.mappings <- as_tibble(bind_cols(country_mappings_list) %>%
+#   mutate(iso3c = toupper(A_ISO_3_letter_code_Mapped)) %>%
+#   select(-A_ISO_3_letter_code_Mapped))
+# 
+# saveRDS(all.country.mappings, here::here("data", "all_country_mappings.rds"))
 
-# Create a vector of named regions
-named_regions <- c("A_WEM_Countries_Mapped", 
-                   "A_IEA_Countries_Mapped", 
-                   "A_WEM_Top_100_Classification_Mapped", 
-                   "A_ISO_3_letter_code_Mapped")
-
-# Read each named region into a list of data frames
-country_mappings_list <- lapply(named_regions, function(region) {
-  # Read data without column names
-  df <- read.xlsx(excel_file, namedRegion = region, skipEmptyRows = FALSE, colNames = FALSE)
-  
-  # Assuming each region results in one main data column
-  # Set the name of the column to the region name
-  # If there are multiple columns, consider appending index or specific identifiers
-  colnames(df) <- region
-  
-  return(df)
-})
-
-# Combine all data frames into one by columns
-all.country.mappings <- as_tibble(bind_cols(country_mappings_list) %>%
-  mutate(iso3c = toupper(A_ISO_3_letter_code_Mapped)) %>%
-  select(-A_ISO_3_letter_code_Mapped))
+all.country.mappings <- readRDS(here::here("data", "all_country_mappings.rds"))
 
 #####################################################################################################################
 ### Focus on actual countries of WEM 100
@@ -251,11 +263,32 @@ wdi.data <- data %>%
   arrange(country_name, year) %>%
   as_tibble()
 
+#######
+
+head(tfc.enerdem.data)
+tfc.enerdem.data1 <- tfc.enerdem.data %>%
+  # Group by country_id and year and then calculate new variable called prop TFC
+  # which is the value of the sum of demand where sector_id = 14 (PT) divided by the sum of demand over all sector_id
+  group_by(country_id, year) %>%
+  summarise(prop_TFC_PTR = sum(demand[sector_id == 14], na.rm = TRUE) / sum(demand, na.rm = TRUE) *100 ) %>%
+  ungroup() %>%
+  as_tibble() 
+
+# Plot line plot of the various prop_TFC by country_id over year
+# ggplot(tfc.enerdem.data1, aes(x = year, y = prop_TFC, color = as.factor(country_id))) +
+#   geom_line() +
+#   geom_point() +
+#   labs(title = "Proportion of TFC by Country that is Passenger Transport Road", x = "Year", y = "Proportion of TFC") +
+#   theme_bw() +
+#   theme(legend.position = "none")
+
+  
+  
 #### Merge with energy service data
 all.data <- wdi.data %>%
   left_join(enerserv.data, by = c("country_id" = "country_id", "year" = "year")) %>%
   select(country_id, country_name, iso3c, year, SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, energy_service) %>%
-  mutate(energy_service = as.numeric(energy_service) * 10 ^-3) %>% # Convert to billion vehicle km / year
+  mutate(energy_service = as.numeric(energy_service * 1e06)) %>% # Original units
   arrange(country_name, year) %>%
   as_tibble()
 
@@ -264,41 +297,23 @@ gdp.pop.data.wider <- gdp.pop.data %>%
   #filter(data_type == "GDP_PPP") %>%
   select(country_id, year, value, data_type) %>%
   mutate(value = as.numeric(value)) %>%
+
   #arrange(country_id, year) %>%
   pivot_wider(names_from = data_type, values_from = value) %>%
-  mutate(GDP_PPP_pcap = (GDP_PPP * 10^9) / (Population * 10^3)) %>%
+  mutate(GDP_PPP = GDP_PPP * 1e09,
+         Population = Population * 1e03) %>%
+  mutate(GDP_PPP_pcap = (GDP_PPP) / (Population)) %>%
   as_tibble()
 
 ### Merge with gdp.pop.data
 all.data1 <- all.data %>%
   left_join(gdp.pop.data.wider, by = c("country_id" = "country_id", "year" = "year")) %>%
-  select(country_id, country_name, iso3c, year, SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, energy_service, GDP_PPP_pcap, GDP_PPP) %>%
+  mutate(ES_pcap = energy_service / (Population)) %>%
+  select(country_id, country_name, iso3c, year, SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, ES_pcap, energy_service, GDP_PPP_pcap, GDP_PPP) %>%
   #mutate(value = as.numeric(value)) %>%
   arrange(country_name, year) %>%
+  left_join(tfc.enerdem.data1, by = c("country_id" = "country_id", "year" = "year")) %>%
   as_tibble()
-
-### Plot scatter plot of Gini coefficient vs energy service
-ggplotly(ggplot(all.data1, aes(y = energy_service, x = SI.POV.GINI, color = country_name)) +
-  geom_point() +
-  #geom_smooth(method = "lm", se = FALSE) +
-  labs(title = "Gini Coefficient vs Energy Service", y = "Energy Service", x = "Gini Coefficient") +
-  theme_bw() +
-  theme(legend.position = "none"))
-
-### Plot scatter plot of Energy Service as a function of GDP_PPP_pcap
-ggplotly(ggplot(all.data1, aes(y = energy_service, x = GDP_PPP_pcap, color = country_name)) +
-  geom_point() +
-  #geom_smooth(method = "lm", se = FALSE) +
-  labs(title = "GDP per capita vs Energy Service", y = "Energy Service", x = "GDP per capita") +
-  theme_bw() +
-  theme(legend.position = "none"))
-
-ggplotly(ggplot(all.data1, aes(y = energy_service, x = GDP_PPP, color = country_name)) +
-           geom_point() +
-           #geom_smooth(method = "lm", se = FALSE) +
-           labs(title = "GDP_PPP vs Energy Service", y = "Energy Service", x = "GDP_PPP") +
-           theme_bw() +
-           theme(legend.position = "none"))
 
 #############################################################################################
 ## Data wrangling for right format for Gompertz curve function
@@ -308,14 +323,26 @@ all.data.gompertz <- all.data1 %>%
   group_by(country_id) %>%
   arrange(year) %>%
   # Make all columns except country_id, country_name, iso3c, year numeric
-  mutate(across(c(SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, energy_service, GDP_PPP_pcap), as.numeric)) %>%
+  mutate(across(c(SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, energy_service, ES_pcap, GDP_PPP_pcap, prop_TFC_PTR), as.numeric)) %>%
   mutate(lag_GDP_PPP_pcap = lag(GDP_PPP_pcap),
+         lag_ES_pcap = lag(ES_pcap),
          lag_energy_service = lag(energy_service),
          lag_Gini = lag(SI.POV.GINI),
          lag_density = lag(EN.POP.DNST),
          lag_urbanization = lag(SP.URB.TOTL.IN.ZS)) %>%
+  rename(
+    #ES = energy_service,
+    #ES_pcap = ES_pcap,
+    #GDP_PPP = GDP_PPP_pcap,
+    Gini = SI.POV.GINI,
+    density_psqkm = EN.POP.DNST,
+    urbanization_perc = SP.URB.TOTL.IN.ZS
+  ) %>%
   ungroup() %>%
+  filter(GDP_PPP != 0) %>%
   arrange(country_id, year)
 
 ### Save to rds in data folder
 saveRDS(all.data.gompertz, here::here("data", "all_data_wem.rds"))
+write_csv(all.data.gompertz, here::here("data", "all_data_wem.csv"))
+
