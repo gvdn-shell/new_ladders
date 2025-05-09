@@ -105,7 +105,7 @@ shell.brand.palette.hex <- shell.brand.palette %>%
 #### ES versus log(GDP) plot looks good
 
 filtered_data <- all.data %>%
-  filter(year > 1970, country_id <= 40) %>%
+  filter(year > 1970, country_id <= 50) %>%
   arrange(country_id, year) # Sort by country_id and year
 
 
@@ -118,7 +118,11 @@ filtered_data <- filtered_data %>%
 
 summary(filtered_data)
 
-#####################################
+
+
+# start_params <- list(b = 5.989e+05, c = 2.590e-01, Asym = 9000)
+# fit <- nls(ES_pcap ~ gompertz_cdf(log_GDP_pcap, b, c, Asym), data = filtered_data, start = start_params)
+# summary(fit)
 
 # Fit the Gompertz model to the entire dataset
 gompertz_fit <- nls(ES_pcap ~ SSgompertz(log_GDP_pcap, Asym, b, c), 
@@ -127,11 +131,57 @@ gompertz_fit <- nls(ES_pcap ~ SSgompertz(log_GDP_pcap, Asym, b, c),
                     control = nls.control(maxiter = 1000))
 summary(gompertz_fit)
 
+
+# coefs_gomp <- coef(gompertz_fit)
+# Asym <- coefs_gomp["Asym"]
+# 
+# start_params <- list(b = coefs_gomp[2], c = coefs_gomp[3])
+# # Fit the model
+# fit <- nls(ES_pcap ~ gompertz_cdf(log_GDP_pcap, b, c), data = filtered_data, start = start_params)
+
+
 # Plot
 
-# Create a data frame with the fitted values
+# x_seq <- seq(-10000, 1000000, length.out = 10000)
+# 
+# # Create a data frame with the fitted values
+# 
+# # Predict new values
+# predicted_values <- predict(gompertz_fit, newdata = data.frame(log_GDP_pcap = x_seq))
+# 
+# # Create a data frame with the fitted values
+# fitted_values <- data.frame(log_GDP_pcap = x_seq, ES_pcap = predicted_values)
+
+
 fitted_values <- data.frame(log_GDP_pcap = filtered_data$log_GDP_pcap, 
                             ES_pcap = predict(gompertz_fit))
+
+#### Plot Weibull
+
+weibull_fit <- nls(ES_pcap ~ SSweibull(log_GDP_pcap, Asym, Drop, lrc, pwr), 
+                   data = filtered_data, 
+                   #start = list(Asym = 1, b = 0.1, c = 0.1), 
+                   control = nls.control(maxiter = 1000))
+summary(weibull_fit)
+
+fitted_values1 <- data.frame(log_GDP_pcap = filtered_data$log_GDP_pcap, 
+                            ES_pcap = predict(weibull_fit))
+
+# Plot with the fitted Weibull curve
+p1 <- ggplot(filtered_data, aes(y = ES_pcap, x = log_GDP_pcap, colour = Hex)) +
+  geom_point(aes(group = country_id)) +
+  geom_line(aes(group = country_id)) +
+  theme_bw() + create_theme(2) +
+  geom_text(data = subset(filtered_data, !duplicated(country_name, fromLast = TRUE)),
+            aes(label = country_name), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02),
+            size = rel(8)) +
+  theme(legend.position = "none") +
+  labs(title = "Aggregate Energy Service Ladder: Passenger Transport Road Energy Service vs GDP", x = "GDP PPP/ capita (US$ 2018) (log)", y = "vehicle km/ capita/ year") +
+  scale_color_identity() +
+  # Add Gompertz line and add label saying Gompertz Model fit
+  geom_line(data = fitted_values1, aes(x = log_GDP_pcap, y = ES_pcap), color = "black", linetype = "solid", linewidth = 2)
+
+p1
 
 # Plot with the fitted Gompertz curve
 p1 <- ggplot(filtered_data, aes(y = ES_pcap, x = log_GDP_pcap, colour = Hex)) +
@@ -142,40 +192,25 @@ p1 <- ggplot(filtered_data, aes(y = ES_pcap, x = log_GDP_pcap, colour = Hex)) +
             aes(label = country_name), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02),
             size = rel(8)) +
   theme(legend.position = "none") +
-  labs(title = "Aggregate Energy Service Ladder: Passenger Transport Road Energy Service vs GDP", x = "GDP PPP (US$ 2018) (log)", y = "vehicle km/ capita/ year") +
+  labs(title = "Aggregate Energy Service Ladder: Passenger Transport Road Energy Service vs GDP", x = "GDP PPP / capita (US$ 2018) (log)", y = "vehicle km/ capita/ year") +
   scale_color_identity() +
   # Add Gompertz line and add label saying Gompertz Model fit
   geom_line(data = fitted_values, aes(x = log_GDP_pcap, y = ES_pcap), color = "black", linetype = "solid", linewidth = 2) #+
   #annotate("text", x = max(fitted_values$log_GDP_pcap) - 0.5, y = max(fitted_values$ES_pcap) - 0.5, 
   #         label = "Gompertz Model Fit", color = "black", size = 10, hjust = 1, vjust = 1) 
-
+p1
 # Save p1 to png
 ggsave(filename = here::here("plots", "pt_road_gdp_es.png"), plot = p1, width = 10, height = 6.3, dpi = 250)
 
 ## Prop TFC that is PTR
-p3 <- ggplotly(ggplot(filtered_data, aes(y = prop_TFC_PTR, x = year, colour = Hex)) +
-  geom_point(aes(group = country_id)) +
-  geom_line(aes(group = country_id)) +
-  theme_bw() + create_theme(2) +
-  geom_text(data = subset(filtered_data, !duplicated(country_name, fromLast = TRUE)),
-            aes(label = country_name), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02),
-            size = rel(8)) +
-  #theme(legend.position = "none") +
-    # Ensure that legend displays the country names
-  scale_color_manual(values = shell.brand.palette.hex$Hex, labels = shell.brand.palette.hex$country_id) +
-    
-  labs(title = "TFC in PT - Road as Proportion of Total TFC", x = "Year", y = "Proportion Total TFC") #+
-  #scale_color_identity()
-  ) 
-
-p3
-
-
 # Plot with country names in the legend and colour country_name label according to Hex
 
+
+
+
 p3 <- ggplot(filtered_data, aes(y = prop_TFC_PTR, x = year, colour = Hex)) +
-  geom_point(aes(group = country_id)) + #, colour = country_name
-  geom_line(aes(group = country_id)) + #, colour = country_name
+  #geom_point(aes(group = country_id)) + #, colour = country_name
+  geom_line(aes(group = country_id), linewidth = 1.25) + #, colour = country_name
   theme_bw() + create_theme(2) +
   geom_text(data = subset(filtered_data, !duplicated(country_name, fromLast = TRUE)),
             aes(label = country_name), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02),
@@ -183,6 +218,35 @@ p3 <- ggplot(filtered_data, aes(y = prop_TFC_PTR, x = year, colour = Hex)) +
   labs(title = "TFC in PT - Road as Proportion of Total TFC", x = "Year", y = "Proportion Total TFC") +
   scale_color_identity() 
   scale_color_manual(values = setNames(shell.brand.palette.hex$Hex, shell.brand.palette.hex$country_name))
+
+  
+  filtered_data2 <- all.data %>%
+    filter(year > 1970) %>%
+    arrange(country_id, year) %>%
+    #left_join(shell.brand.palette.hex , by = c("country_id", "country_name")) %>%
+    mutate(log_GDP_pcap = log(GDP_PPP_pcap)) %>%
+    filter(!is.na(ES_pcap) & !is.na(log_GDP_pcap) & !is.infinite(ES_pcap) & !is.infinite(log_GDP_pcap)) 
+  
+log_GDP_pcap_GDP_2024 <- filtered_data2 %>%
+  filter(year == 2024) %>%
+  mutate(GDP_pcap = exp(log_GDP_pcap)) %>%
+  select(country_id, GDP_pcap_2024 = GDP_pcap)
+
+filtered_data2 <- filtered_data2 %>%
+  left_join(log_GDP_pcap_GDP_2024, by = "country_id")
+    
+
+  
+
+p3 <- ggplot(filtered_data2, aes(y = prop_TFC_PTR, x = year, colour = GDP_pcap_2024)) +
+  geom_line(aes(group = country_id), linewidth = 1.25) +
+  theme_bw() + create_theme(2) +
+  geom_text(data = subset(filtered_data2, !duplicated(country_name, fromLast = TRUE)),
+            aes(label = country_name), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02),
+            size = rel(8)) +
+  scale_colour_gradient(low = "blue", high = "red", na.value = "grey") +
+  labs(title = "TFC in PT - Road as Proportion of Total TFC", x = "Year", y = "Proportion Total TFC")
+
 
 # Convert to plotly
 p3a <- ggplotly(p3)
