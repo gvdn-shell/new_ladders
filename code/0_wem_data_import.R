@@ -343,6 +343,6 @@ all.data.gompertz <- all.data1 %>%
   arrange(country_id, year)
 
 ### Save to rds in data folder
-saveRDS(all.data.gompertz, here::here("data", "all_data_wem.rds"))
-write_csv(all.data.gompertz, here::here("data", "all_data_wem.csv"))
+saveRDS(all.data.gompertz, here::here("data", "all_data_wem_espcap.rds"))
+write_csv(all.data.gompertz, here::here("data", "all_data_wem_espacp.csv"))
 
