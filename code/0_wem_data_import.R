@@ -15,7 +15,8 @@ packages <- c("tidyverse",
               "DBI","odbc","readxlsb","RODBC",
               "WDI",
               "openxlsx",
-              "plotly", "conflicted") #
+              "plotly", "conflicted",
+              "zoo") #
 installed_packages <- packages %in% rownames(installed.packages())
 
 if (any(!installed_packages)) {
@@ -48,6 +49,96 @@ conflicts_prefer(dplyr::filter)
 
 #####################################################################################################################
 ####################################################################################################
+
+### Functions  
+# Gapfill function: Use CAGR to fill in gaps between non-missing values
+gapfill <- function(data, column_name) {
+  
+  # Extract the column of interest (e.g., Value)
+  x <- data[[column_name]]
+  
+  # Scan for the first and last data point. Any "NA" in between is a gap.
+  dataend = -1
+  datastart = 0
+  beginning = 1
+  for(i in 1:length(x)) {
+    if (!is.na(x[i]) & beginning == 1) { datastart = i }
+    if (!is.na(x[i])) { dataend = i; beginning = 0 }
+  }
+  
+  # This for-loop iterates through the series and scans for gaps.
+  # If suddenly data becomes "NA", then the gap counter "gaps" is increased by one.    
+  # Moreover, the variable "ingap" is set to 1. For every next "NA", the gap length 
+  # counter "gaplength" is increased by 1.
+  # If it encounters data while "ingap" = 1, then it knows the gap is ended. The gap  
+  # length is stored in "gappattern" together with the value of the gap counter, and 
+  # "ingap" is set to 0 again.
+  ingap = 0
+  gaps = 0
+  gaplength = 0
+  gappattern = c()
+  if (dataend > datastart) {
+    for (i in datastart:dataend) {
+      if (ingap == 0 & is.na(x[i])) {
+        ingap = 1
+        gaps = gaps + 1
+        gappattern = rbind(gappattern, c(i, 0))
+        gaplength = gaplength + 1
+      }
+      if (ingap == 1 & is.na(x[i])) {
+        gaplength = gaplength + 1
+      }
+      if (ingap == 1 & !is.na(x[i])) {
+        ingap = 0
+        gappattern[gaps, 2] = i - 1
+        gaplength = 0         
+      }        
+    }
+  }
+  
+  # This loop iterates through all the gaps that have been found. It starts by 
+  # calculating the CAGR using the value to the left and right of the gap. 
+  # Then it fills these up.
+  if (length(gappattern) > 0) {
+    for (i in 1:nrow(gappattern)) {
+      gapstartvalue = x[gappattern[i, 1] - 1]
+      gapendvalue = x[gappattern[i, 2] + 1]
+      gapsize = (gappattern[i, 2] + 1) - (gappattern[i, 1] - 1)
+      cagr = (gapendvalue / gapstartvalue)^(1 / gapsize)
+      for (j in gappattern[i, 1]:gappattern[i, 2]) {
+        x[j] = x[j - 1] * cagr
+      }
+    }
+  }
+  
+  # Assign the modified column back to the data frame
+  data[[column_name]] <- x
+  
+  return(data)
+}
+
+growth.rate <- function(df, value_col) {
+  df %>%
+    mutate(
+      growth_rate_IGU.real = (.[[value_col]] - lag(.[[value_col]], 1)) / lag(.[[value_col]], 1) * 100
+    )
+}
+
+growth.rate <- function(df, value_col) {
+  new_col_name <- paste0("growth_rate_", value_col)
+  df %>%
+    mutate(
+      !!new_col_name := (.[[value_col]] - lag(.[[value_col]], 1)) / lag(.[[value_col]], 1) * 100
+    )
+}
+
+# # Function to calculate forward and backward extrapolation
+calculate_extrapolation <- function(value, growth) {
+  Reduce(
+    function(prevval, ind) coalesce(value[ind], prevval * growth[ind]),
+    row_number(), init = NA, accumulate = TRUE
+  )[-1]
+}
 
 ####################################################################################################
 # Establish the database connection
@@ -85,7 +176,7 @@ print(table_names)
 
 #---LOAD DATA---------------------------
 run_id <- 1         # Isolate run interested in
-max_year <- 2024  # Get historic data only
+max_year <- 2100 #2024  # Get historic data only
 max_sector_id <- toString(c(14))  # Focus on PT - Road
 # String so that SQL can understand it
 
@@ -138,6 +229,7 @@ gdp.pop.query <- paste0(
   #" AND [run_id] = ", run_id
 )
 gdp.pop.data <- queryDB(gdp.pop.query)
+
 # 
 table(unique(gdp.pop.data$data_type))
 # # Energy carrier prices including taxes: USD/GJ
@@ -282,8 +374,6 @@ tfc.enerdem.data1 <- tfc.enerdem.data %>%
 #   theme_bw() +
 #   theme(legend.position = "none")
 
-  
-  
 #### Merge with energy service data
 all.data <- wdi.data %>%
   left_join(enerserv.data, by = c("country_id" = "country_id", "year" = "year")) %>%
@@ -305,14 +395,34 @@ gdp.pop.data.wider <- gdp.pop.data %>%
   mutate(GDP_PPP_pcap = (GDP_PPP) / (Population)) %>%
   as_tibble()
 
+###################################################################################
+# Define a helper function to get the mode
+get_mode <- function(x) {
+  ux <- na.omit(unique(x))
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
 ### Merge with gdp.pop.data
-all.data1 <- all.data %>%
-  left_join(gdp.pop.data.wider, by = c("country_id" = "country_id", "year" = "year")) %>%
+all.data1 <- gdp.pop.data.wider %>%
+  left_join(all.data, by = c("country_id" = "country_id", "year" = "year")) %>%#all.data %>%
+  #left_join(gdp.pop.data.wider, by = c("country_id" = "country_id", "year" = "year")) %>%
   mutate(ES_pcap = energy_service / (Population)) %>%
   select(country_id, country_name, iso3c, year, SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, ES_pcap, energy_service, GDP_PPP_pcap, GDP_PPP) %>%
   #mutate(value = as.numeric(value)) %>%
+  group_by(country_id) %>%
+  mutate(
+    country_name = ifelse(is.na(country_name), get_mode(country_name), country_name),
+    iso3c = ifelse(is.na(iso3c), get_mode(iso3c), iso3c)
+  ) %>%
+  ungroup() %>%
   arrange(country_name, year) %>%
   left_join(tfc.enerdem.data1, by = c("country_id" = "country_id", "year" = "year")) %>%
+  # Drop all rows where country_name is missing
+  filter(!is.na(country_name)) %>%
+  # Dummies for missing values
+  mutate(gini_missing = ifelse(is.na(SI.POV.GINI), 1, 0),
+         density_missing = ifelse(is.na(EN.POP.DNST), 1, 0),
+         urbanization_missing = ifelse(is.na(SP.URB.TOTL.IN.ZS), 1, 0)) %>%
   as_tibble()
 
 #############################################################################################
@@ -322,6 +432,9 @@ all.data.gompertz <- all.data1 %>%
   ungroup() %>%
   group_by(country_id) %>%
   arrange(year) %>%
+  group_modify(~ gapfill(., "SI.POV.GINI")) %>%
+  group_modify(~ gapfill(., "SP.URB.TOTL.IN.ZS")) %>%
+  group_modify(~ gapfill(., "EN.POP.DNST")) %>%
   # Make all columns except country_id, country_name, iso3c, year numeric
   mutate(across(c(SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, energy_service, ES_pcap, GDP_PPP_pcap, prop_TFC_PTR), as.numeric)) %>%
   mutate(lag_GDP_PPP_pcap = lag(GDP_PPP_pcap),
@@ -340,9 +453,13 @@ all.data.gompertz <- all.data1 %>%
   ) %>%
   ungroup() %>%
   filter(GDP_PPP != 0) %>%
-  arrange(country_id, year)
+  arrange(country_id, year) %>%
+  mutate(historical_data = ifelse(year <= 2024, 1, 0))
+
+########## Nice extrapolation: https://stackoverflow.com/questions/74858960/how-to-extrapolate-values-over-dates-using-r
 
 ### Save to rds in data folder
-saveRDS(all.data.gompertz, here::here("data", "all_data_wem_espcap.rds"))
-write_csv(all.data.gompertz, here::here("data", "all_data_wem_espacp.csv"))
+saveRDS(all.data.gompertz, here::here("data", "all_data_wem_espcap_gapfill.rds"))
+write_csv(all.data.gompertz, here::here("data", "all_data_wem_espacp_gapfill.csv"))
 
+#########################################################################################################################################
