@@ -437,6 +437,10 @@ all.data.gompertz <- all.data1 %>%
   group_modify(~ gapfill(., "EN.POP.DNST")) %>%
   # Make all columns except country_id, country_name, iso3c, year numeric
   mutate(across(c(SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, energy_service, ES_pcap, GDP_PPP_pcap, prop_TFC_PTR), as.numeric)) %>%
+  # Set values of ES_pcap, energy_service and prop_TFC_PTR to NA for years after 2024
+  mutate(ES_pcap = ifelse(year > 2024, NA, ES_pcap),
+         energy_service = ifelse(year > 2024, NA, energy_service),
+         prop_TFC_PTR = ifelse(year > 2024, NA, prop_TFC_PTR)) %>%
   mutate(lag_GDP_PPP_pcap = lag(GDP_PPP_pcap),
          lag_ES_pcap = lag(ES_pcap),
          lag_energy_service = lag(energy_service),
