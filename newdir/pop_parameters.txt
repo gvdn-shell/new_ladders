@@ -1,0 +1,111 @@
+Nonlinear mixed-effects model fit by the SAEM algorithm
+-----------------------------------
+----          Data             ----
+-----------------------------------
+Object of class SaemixData
+    longitudinal data for use with the SAEM algorithm
+Dataset data 
+    Structured data: energy_service ~ Year0 | country_name 
+    Predictor: Year0 () 
+Dataset characteristics:
+    number of subjects:     15 
+    number of observations: 960 
+    average/min/max nb obs: 64.00  /  64  /  64 
+First 10 lines of data:
+    country_name Year0 energy_service mdv cens occ ytype
+577       Brazil     0       28.80640   0    0   1     1
+578       Brazil     1       30.79842   0    0   1     1
+579       Brazil     2       32.90135   0    0   1     1
+580       Brazil     3       35.11865   0    0   1     1
+581       Brazil     4       37.45362   0    0   1     1
+582       Brazil     5       39.90985   0    0   1     1
+583       Brazil     6       42.49110   0    0   1     1
+584       Brazil     7       45.20118   0    0   1     1
+585       Brazil     8       48.04425   0    0   1     1
+586       Brazil     9       51.02330   0    0   1     1
+-----------------------------------
+----          Model            ----
+-----------------------------------
+Nonlinear mixed-effects model
+  Model function:  Gompertz model
+  Model type:  structural
+function(psi, id, xidep) {
+    t <- xidep[, 1]
+    a <- psi[id, 1]
+    b <- psi[id, 2]
+    c <- psi[id, 3]
+    ypred <- a * exp(-b * exp(-c * t))
+    return(ypred)
+  }
+<bytecode: 0x00000280048abe50>
+  Nb of parameters: 3 
+      parameter names:  a b c 
+      distribution:
+     Parameter Distribution Estimated
+[1,] a         normal       Estimated
+[2,] b         normal       Estimated
+[3,] c         normal       Estimated
+  Variance-covariance matrix:
+  a b c
+a 1 0 0
+b 0 1 0
+c 0 0 1
+  Error model: constant , initial values: a.1=1 
+    No covariate in the model.
+    Initial values
+               a b   c
+Pop.CondInit 500 1 0.1
+-----------------------------------
+----    Key algorithm options  ----
+-----------------------------------
+    Estimation of individual parameters (MAP)
+    Estimation of standard errors and linearised log-likelihood
+    Estimation of log-likelihood by importance sampling
+    Number of iterations:  K1=300, K2=100 
+    Number of chains:  4 
+    Seed:  12345 
+    Number of MCMC iterations for IS:  5000 
+    Simulations:
+        nb of simulated datasets used for npde:  1000 
+        nb of simulated datasets used for VPC:  100 
+    Input/output
+        save the results to a file:  TRUE 
+        save the graphs to files:  TRUE 
+        directory where results should be saved:  newdir 
+----------------------------------------------------
+----                  Results                   ----
+----------------------------------------------------
+-----------------  Fixed effects  ------------------
+----------------------------------------------------
+     Parameter Estimate SE      CV(%)
+[1,] a         1.8e+03  6.3e+02 35.9 
+[2,] b         6.3e+00  1.8e+00 29.1 
+[3,] c         4.4e-02  4.1e-03  9.4 
+[4,] a.1       5.6e+01  <NA>    <NA> 
+----------------------------------------------------
+-----------  Variance of random effects  -----------
+----------------------------------------------------
+  Parameter Estimate SE CV(%)
+a omega2.a  5.8e+06  NA NA   
+b omega2.b  4.7e+01  NA NA   
+c omega2.c  1.7e-04  NA NA   
+----------------------------------------------------
+------  Correlation matrix of random effects  ------
+----------------------------------------------------
+         omega2.a omega2.b omega2.c
+omega2.a 1        0        0       
+omega2.b 0        1        0       
+omega2.c 0        0        1       
+----------------------------------------------------
+---------------  Statistical criteria  -------------
+----------------------------------------------------
+Likelihood computed by linearisation
+      -2LL= 10694.7 
+      AIC = 10708.7 
+      BIC = 10713.66 
+
+Likelihood computed by importance sampling
+      -2LL= 10696.53 
+      AIC = 10710.53 
+      BIC = 10715.49 
+----------------------------------------------------

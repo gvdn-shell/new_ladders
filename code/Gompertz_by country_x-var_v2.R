@@ -8,9 +8,14 @@ library(ggplot2)
 data <- readRDS("data/all_data_wem.rds")
 
 # Define the Gompertz function with additional variables
-gompertz <- function(t, a, b, c, d, e, pop_density, gini_index) {
-  a * exp(-b * exp(-c * t)) + d * pop_density + e * gini_index
+# gompertz <- function(t, a, b, c, d, e, pop_density, gini_index) {
+#   a * exp(-b * exp(-c * t)) + d * pop_density + e * gini_index
+# }
+
+gompertz <- function(t, a, b, c, pop_density, gini_index) {
+  a * exp(-b * exp(-c * t * pop_density)) ^ gini_index
 }
+
 
 # Filter data for country_id <= 15
 data <- data %>%
@@ -27,6 +32,7 @@ data <- data %>%
   ungroup()
 
 
+
 data <- data %>%
   group_by(country_name) %>%
   mutate(Year0 = year - min(year)) %>%
@@ -37,9 +43,9 @@ models <- data %>%
   group_by(country_name) %>%
   group_map(~{
     tryCatch({
-      mod <- nlsLM(ES_pcap ~ a * exp(-b * exp(-c * Year0)) + d * pop_density + e * gini_index,
+      mod <- nlsLM(ES_pcap ~ a * exp(-b * exp(-c * t * pop_density)) ^ gini_index,
                    data = .x,
-                   start = list(a=5000, b=1, c=0.1, d=0.1, e=0.1))
+                   start = list(a=5000, b=1, c=0.1))
       list(model = mod, data = .x)
     }, error = function(e) NULL)
   }, .keep = TRUE)
@@ -67,7 +73,7 @@ predictions <- map_dfr(models, function(entry) {
 
 # Combine original and predicted data
 combined <- data %>%
-  select(country_name, year, ES_pcap, GDP_PPP_pcap, pop_density, gini_index) %>%
+  select(country_name, year, ES_pcap, GDP_PPP_pcap, density_psqkm, Gini) %>%
   mutate(Source = "Observed") %>%
   bind_rows(
     predictions %>%
@@ -77,38 +83,26 @@ combined <- data %>%
         GDP_PPP_pcap = last_GDP * (1 + 0.03)^(year - max(data$year)),
         Source = "Predicted"
       ) %>%
-      select(country_name, year, ES_pcap, GDP_PPP_pcap, pop_density, gini_index, Source)
+      select(country_name, year, ES_pcap, GDP_PPP_pcap, density_psqkm, Gini, Source)
   )
 
 
-# Extract the last point for each country in the Observed data
-line_labels <- combined %>%
-  filter(Source == "Predicted") %>%
-  group_by(country_name) %>%
-  filter(GDP_PPP_pcap == max(GDP_PPP_pcap)) %>%
-  ungroup()
-
 # Plot historical and predicted data
-ggplot(combined, aes(x = GDP_PPP_pcap, y = ES_pcap, color = country_name)) +
+ggplot(combined, aes(x = GDP_PPP_pcap, y = energy_service, color = country_name)) +
   geom_line(data = combined %>% filter(Source == "Observed"), size = 1) +
   geom_line(data = combined %>% filter(Source == "Predicted"), size = 1, linetype = "dotted") +
-  geom_text(data = line_labels, aes(label = country_name), hjust = -0.1, size = 3, show.legend = FALSE) +
-  labs(title = "Energy Service per Capita vs GDP per Capita",
+  labs(title = "Energy Service Over Time",
        x = "GDP per Capita",
-       y = "Energy Service per Capita",
+       y = "Energy Service",
        color = "Country") +
-  theme_minimal() +
-  theme(legend.position = "none")
+  theme_minimal()
 
 # Plot historical and predicted data Es vs Year
-ggplot(combined, aes(x = year, y = ES_pcap, color = country_name)) +
+ggplot(combined, aes(x = year, y = energy_service, color = country_name)) +
   geom_line(data = combined %>% filter(Source == "Observed"), size = 1) +
   geom_line(data = combined %>% filter(Source == "Predicted"), size = 1, linetype = "dotted") +
-  geom_text(data = line_labels, aes(label = country_name), hjust = -0.1, size = 3, show.legend = FALSE) +
-  labs(title = "Energy Service per Capita Over Time",
+  labs(title = "Energy Service Over Time",
        x = "Year",
-       y = "Energy Service per Capita",
+       y = "Energy Service",
        color = "Country") +
-  theme_minimal() +
-  theme(legend.position = "none")
-
+  theme_minimal()
