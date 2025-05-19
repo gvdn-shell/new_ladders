@@ -5,7 +5,7 @@ library(tidyr)
 library(purrr)
 library(ggplot2)
 
-data <- readRDS("all_data_wem.rds")
+data <- readRDS("data/all_data_wem.rds")
 
 # Define the Gompertz function
 gompertz <- function(t, a, b, c) {
@@ -27,7 +27,7 @@ models <- data %>%
   group_by(country_name) %>%
   group_map(~{
     tryCatch({
-      mod <- nlsLM(energy_service ~ a * exp(-b * exp(-c * Year0)),
+      mod <- nlsLM(ES_pcap ~ a * exp(-b * exp(-c * Year0)),
                    data = .x,
                    start = list(a=500,b=1,c=0.1))
       list(model = mod, data = .x)
@@ -49,44 +49,76 @@ predictions <- map_dfr(models, function(entry) {
     Year0 = new_years - min(data$year),
     country_name = country
   )
-  new_data$energy_service <- predict(model, newdata = new_data)
+  new_data$ES_pcap <- predict(model, newdata = new_data)
   new_data
 })
 
 # combine original and predicted data
 
-combined<- data %>%
-  select(country_name, year, energy_service, GDP_PPP_pcap) %>%
+# combined<- data %>%
+#   dplyr::select(country_name, year, ES_pcap, GDP_PPP_pcap) %>%
+#   mutate(Source = "Observed") %>%
+#   bind_rows( 
+#     predictions %>%
+#       left_join(data %>% group_by(country_name) %>%
+#                   summarise(last_GDP = last(GDP_PPP_pcap)), by = "country_name") %>%
+#       mutate(
+#         GDP_PPP_pcap = last_GDP * (1 + 0.03)^(year - max(data$year)),
+#         Source = "Predicted"
+#       ) %>%
+#       select(country_name, year, ES_pcap, GDP_PPP_pcap, Source)
+#                 )
+
+
+step1 <- data %>%
+  dplyr::select(country_name, year, ES_pcap, GDP_PPP_pcap)
+
+step2 <- predictions %>%
+  left_join(data %>% group_by(country_name) %>%
+              summarise(last_GDP = last(GDP_PPP_pcap)), by = "country_name") %>%
+  mutate(
+    GDP_PPP_pcap = last_GDP * (1 + 0.03)^(year - max(data$year)),
+    Source = "Predicted"
+  ) %>%
+  dplyr::select(country_name, year, ES_pcap, GDP_PPP_pcap, Source)
+
+combined <- step1 %>%
   mutate(Source = "Observed") %>%
-  bind_rows( 
-    predictions %>%
-      left_join(data %>% group_by(country_name) %>%
-                  summarise(last_GDP = last(GDP_PPP_pcap)), by = "country_name") %>%
-      mutate(
-        GDP_PPP_pcap = last_GDP * (1 + 0.03)^(year - max(data$year)),
-        Source = "Predicted"
-      ) %>%
-      select(country_name, year,energy_service, GDP_PPP_pcap, Source)
-                )
+  bind_rows(step2)
+
+
+# Extract the last point for each country in the Observed data
+line_labels <- combined %>%
+  filter(Source == "Observed") %>%
+  group_by(country_name) %>%
+  filter(GDP_PPP_pcap == max(GDP_PPP_pcap)) %>%
+  ungroup()
 
 
 # Plot historical and predicted data
-ggplot(combined, aes(x = GDP_PPP_pcap, y = energy_service, color = country_name)) +
+ggplot(combined, aes(x = GDP_PPP_pcap, y = ES_pcap, color = country_name)) +
   geom_line(data = combined %>% filter(Source == "Observed"), size = 1) +
   geom_line(data = combined %>% filter(Source == "Predicted"), size = 1, linetype = "dotted") +
-  labs(title = "Energy Service Over Time",
+  geom_text(data = line_labels, aes(label = country_name), hjust = -0.1, size = 3, show.legend = FALSE) +
+  labs(title = "Energy Service per Capita vs GDP per Capita",
        x = "GDP per Capita",
-       y = "Energy Service",
+       y = "Energy Service per Capita",
        color = "Country") +
-  theme_minimal()
+  theme_minimal() +
+  theme(legend.position = "none")
+  # scale_y_continuous(transform = "sqrt") +
+  # scale_x_continuous(transform = "sqrt")
+ # scale_color_brewer(palette = "Set1") # Optional: use a colorblind-friendly palette
 
 # Plot historical and predicted data Es vs Year
-ggplot(combined, aes(x = year, y = energy_service, color = country_name)) +
+ggplot(combined, aes(x = year, y = ES_pcap, color = country_name)) +
   geom_line(data = combined %>% filter(Source == "Observed"), size = 1) +
   geom_line(data = combined %>% filter(Source == "Predicted"), size = 1, linetype = "dotted") +
-  labs(title = "Energy Service Over Time",
+  geom_text(data = line_labels, aes(label = country_name), hjust = -0.1, size = 3, show.legend = FALSE) +
+  labs(title = "Energy Service per Capita Over Time",
        x = "Year",
-       y = "Energy Service",
+       y = "Energy Service per Capita",
        color = "Country") +
-  theme_minimal()
+  theme_minimal() +
+  theme(legend.position = "none")
 
