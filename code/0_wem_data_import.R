@@ -695,7 +695,7 @@ all.data.gompertz.reg1 <- all.data.gompertz.reg %>%
   select(country_id, data) %>%
   unnest(data)
 
-View(all.data.gompertz.reg1 %>% filter(country_name == "Russia"))
+# View(all.data.gompertz.reg1 %>% filter(country_name == "Russia"))
 
 # This is the pipeline I have focused on
 p_order <- 10
@@ -773,6 +773,9 @@ p1 <- ggplotly(ggplot(all.data.gompertz.reg1, aes(x=year, y = urb_filled, color 
 #Save to interactive html
 htmlwidgets::saveWidget(p1, here::here("plots", "urb_over_time.html"), selfcontained = TRUE)
 
+all.data.gompertz.reg1 <- all.data.gompertz.reg1 %>%
+  mutate(SI.POV.GINI = gini_filled,
+         SP.URB.TOTL.IN.ZS = urb_filled)
 
 last_historical_year <- 2023
 all.data.gompertz <- all.data.gompertz.reg1 %>%
