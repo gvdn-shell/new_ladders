@@ -409,13 +409,13 @@ fit2 <- nlme(
 )
 
 # Define the model function
-multiple_logistic_model2 <- function(GDP_PPP_pcap, density_psqkm, a0, a1, xmid, scal, g1, Gini) {
-  (a0 + a1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap) / scal))) ^ (g1 * Gini)
-}
-
-multiple_logistic_model2 <- function(GDP_PPP_pcap, density_psqkm, a0, a1, xmid, scal) {
-  (a0 + a1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap) / scal))) 
-}
+# multiple_logistic_model2 <- function(GDP_PPP_pcap, density_psqkm, a0, a1, xmid, scal, g1, Gini) {
+#   (a0 + a1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap) / scal))) ^ (g1 * Gini)
+# }
+# 
+# multiple_logistic_model2 <- function(GDP_PPP_pcap, density_psqkm, a0, a1, xmid, scal) {
+#   (a0 + a1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap) / scal))) 
+# }
 
 # Fit the model using nlme
 
@@ -756,146 +756,5 @@ qqnorm(data1$residuals_weighted); qqline(data1$residuals_weighted, col = "red")
 
 
 
-#############################################################################################
 
-
-
-models <- data %>%
-  group_by(country_name) %>%
-  group_map(~{
-    tryCatch({
-      mod <- nlsLM(ES_pcap ~ SSlogis(GDP_PPP_pcap, Asym, xmid, scal),
-                   data = .x#,
-                   #start = list(Asym=5000, xmid=1, scal=0.1)
-                   )
-      list(model = mod, data = .x)
-    }, error = function(e) {
-      message("Model failed for ", unique(.x$country_name), ": ", e$message)
-      NULL
-    })
-  }, .keep = TRUE)
-
-data %>% filter(country_name == "Russia") %>% summary()
-
-
-start_vals <- list(
-  Asym = max(.x$ES_pcap, na.rm = TRUE),
-  xmid = median(.x$GDP_PPP_pcap, na.rm = TRUE),
-  scal = sd(.x$GDP_PPP_pcap, na.rm = TRUE)
-)
-
-
-models <- data %>%
-  group_by(country_name) %>%
-  group_map(~{
-    tryCatch({
-      xmid_start <- median(.x$GDP_PPP_pcap, na.rm = TRUE)
-      scal_start <- 0.1
-      c_start <- min(.x$ES_pcap, na.rm = TRUE)
-      b_start <- (max(.x$ES_pcap, na.rm = TRUE) - c_start) / max(.x$Gini, na.rm = TRUE)
-      
-      mod <- nlsLM(ES_pcap ~ (c + b * Gini) / (1 + exp(-scal * (GDP_PPP_pcap - xmid))),
-                   data = .x,
-                   start = list(xmid = xmid_start, scal = scal_start, c = c_start, b = b_start))
-      list(model = mod, data = .x)
-    }, error = function(e) {
-      message("Model failed for ", unique(.x$country_name), ": ", e$message)
-      NULL
-    })
-  }, .keep = TRUE)
-
-
-
-models <- data %>%
-  group_by(country_name) %>%
-  group_map(~{
-    tryCatch({
-      mod <- nlsLM(ES_pcap ~ (c + b * Gini) / (1 + exp(-scal * (GDP_PPP_pcap - xmid))),
-                   data = .x,
-                   start = list(xmid = 1, scal = 0.1, c = 0.1, b = 0.1))
-      list(model = mod, data = .x)
-    }, error = function(e) {
-      message("Model failed for ", unique(.x$country_name), ": ", e$message)
-      NULL
-    })
-  }, .keep = TRUE)
-
-
-models <- data %>%
-  group_by(country_name) %>%
-  group_map(~{
-    tryCatch({
-      mod <- nlsLM(ES_pcap ~ Scurve2(x = GDP_PPP_pcap, gini_index = Gini, Asym, xmid, scal, c, b),
-                   data = .x,
-                   start = list(Asym=5000, xmid=1, scal=0.1, c=0.1, b=0.1))
-      list(model = mod, data = .x)
-    }, error = function(e) NULL)
-  }, .keep = TRUE)
-
-models <- data %>%
-  group_by(country_name) %>%
-  group_map(~{
-    tryCatch({
-      mod <- nlsLM(ES_pcap ~ a * exp(-b * exp(-c * t * pop_density)) ^ gini_index,
-                   data = .x,
-                   start = list(a=5000, b=1, c=0.1))
-      list(model = mod, data = .x)
-    }, error = function(e) NULL)
-  }, .keep = TRUE)
-
-
-# Predict next 20 years
-predictions <- map_dfr(models, function(entry) {
-  if(is.null(entry)) return(NULL)
-  model <- entry$model
-  data <- entry$data
-  country <- unique(data$country_name)
-  last_year <- max(data$year)
-  new_years <- (last_year + 1):(last_year + 20)
-  new_data <- tibble(
-    year = new_years,
-    Year0 = new_years - min(data$year),
-    country_name = country,
-    pop_density = mean(data$pop_density) * (1 + 0.02)^(new_years - last_year), # Assuming a 2% annual increase
-    gini_index = mean(data$gini_index) * (1 + 0.01)^(new_years - last_year) # Assuming a 1% annual increase
-  )
-  new_data$ES_pcap <- predict(model, newdata = new_data)
-  new_data
-})
-
-
-# Combine original and predicted data
-combined <- data %>%
-  select(country_name, year, ES_pcap, GDP_PPP_pcap, density_psqkm, Gini) %>%
-  mutate(Source = "Observed") %>%
-  bind_rows(
-    predictions %>%
-      left_join(data %>% group_by(country_name) %>%
-                  summarise(last_GDP = last(GDP_PPP_pcap)), by = "country_name") %>%
-      mutate(
-        GDP_PPP_pcap = last_GDP * (1 + 0.03)^(year - max(data$year)),
-        Source = "Predicted"
-      ) %>%
-      select(country_name, year, ES_pcap, GDP_PPP_pcap, density_psqkm, Gini, Source)
-  )
-
-
-# Plot historical and predicted data
-ggplot(combined, aes(x = GDP_PPP_pcap, y = energy_service, color = country_name)) +
-  geom_line(data = combined %>% filter(Source == "Observed"), size = 1) +
-  geom_line(data = combined %>% filter(Source == "Predicted"), size = 1, linetype = "dotted") +
-  labs(title = "Energy Service Over Time",
-       x = "GDP per Capita",
-       y = "Energy Service",
-       color = "Country") +
-  theme_minimal()
-
-# Plot historical and predicted data Es vs Year
-ggplot(combined, aes(x = year, y = energy_service, color = country_name)) +
-  geom_line(data = combined %>% filter(Source == "Observed"), size = 1) +
-  geom_line(data = combined %>% filter(Source == "Predicted"), size = 1, linetype = "dotted") +
-  labs(title = "Energy Service Over Time",
-       x = "Year",
-       y = "Energy Service",
-       color = "Country") +
-  theme_minimal()
+# saveRDS(all.country.mappings, here::here("data", "all_country_mappings.rds"))

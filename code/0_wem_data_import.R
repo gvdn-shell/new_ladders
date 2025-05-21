@@ -12,11 +12,13 @@ packages <- c("tidyverse",
               "minpack.lm",
               "sysfonts",
               "showtext",
-              "DBI","odbc","readxlsb","RODBC",
+              "DBI","odbc","RODBC",
               "WDI",
               "openxlsx",
               "plotly", "conflicted",
-              "zoo") #
+              "zoo",
+              "mgcv",
+              "nlme") #
 installed_packages <- packages %in% rownames(installed.packages())
 
 if (any(!installed_packages)) {
@@ -275,26 +277,27 @@ table(unique(gdp.pop.data$data_type))
 dbDisconnect(conn)
 
 #####################################################################################################################
-#### Import country names and mappings
-# Specify the path to your Excel file
+### Import country names and mappings
+#Specify the path to your Excel file
 # excel_file <- here::here("data", "Shell WEM - A Settings v3.4.1.xlsx")
 # 
 # # Create a vector of named regions
-# named_regions <- c("A_WEM_Countries_Mapped", 
-#                    "A_IEA_Countries_Mapped", 
-#                    "A_WEM_Top_100_Classification_Mapped", 
+# named_regions <- c("A_WEM_Countries_Mapped",
+#                    "A_IEA_Countries_Mapped",
+#                    "A_WEM_Top_100_Classification_Mapped",
+#                    "A_WEM_Regions_Mapped",
 #                    "A_ISO_3_letter_code_Mapped")
 # 
 # # Read each named region into a list of data frames
 # country_mappings_list <- lapply(named_regions, function(region) {
 #   # Read data without column names
 #   df <- read.xlsx(excel_file, namedRegion = region, skipEmptyRows = FALSE, colNames = FALSE)
-#   
+# 
 #   # Assuming each region results in one main data column
 #   # Set the name of the column to the region name
 #   # If there are multiple columns, consider appending index or specific identifiers
 #   colnames(df) <- region
-#   
+# 
 #   return(df)
 # })
 # 
@@ -307,12 +310,32 @@ dbDisconnect(conn)
 
 all.country.mappings <- readRDS(here::here("data", "all_country_mappings.rds"))
 
+# land_mappings_list <- lapply("A_Land_Area", function(region) {
+#   # Read data without column names
+#   df <- read.xlsx(excel_file, namedRegion = region, skipEmptyRows = FALSE, colNames = FALSE)
+#   
+#   # Assuming each region results in one main data column
+#   # Set the name of the column to the region name
+#   # If there are multiple columns, consider appending index or specific identifiers
+#   colnames(df) <- region
+#   
+#   return(df)
+# })
+# 
+# land_mappings_list <- bind_rows(land_mappings_list) %>%
+#   # Add row numbers as a new column and call country_id
+#   mutate(country_id = row_number())
+# 
+# saveRDS(land_mappings_list, here::here("data", "land_mappings.rds"))
+
+land_mappings <- readRDS(here::here("data", "land_mappings.rds"))
+
 #####################################################################################################################
 ### Focus on actual countries of WEM 100
 # Merge all.country.mappings with countries.data
 countries.data.iso <- countries.data %>%
   left_join(all.country.mappings, by = c("country_name" = "A_WEM_Countries_Mapped")) %>%
-  select(country_id, country_name, iso3c) %>%
+  select(country_id, country_name, iso3c, wem_regions = A_WEM_Regions_Mapped) %>%
   mutate(country_name = ifelse(is.na(country_name), country_id, country_name)) %>%
   filter(complete.cases(.)) %>%
   as_tibble()
@@ -347,7 +370,7 @@ ggplot(data, aes(x=year, y = SI.POV.GINI, color = country, group = country)) +
 #### Join with countries.data.iso
 wdi.data <- data %>%
   left_join(countries.data.iso, by = c("iso3c" = "iso3c")) %>%
-  select(country_id, country_name, iso3c, year, SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, income) %>%
+  select(country_id, country_name, wem_regions, iso3c, year, SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, income) %>%
   mutate(SI.POV.GINI = as.numeric(SI.POV.GINI),
          EN.POP.DNST = as.numeric(EN.POP.DNST),
          SP.URB.TOTL.IN.ZS = as.numeric(SP.URB.TOTL.IN.ZS)) %>%
@@ -377,7 +400,7 @@ tfc.enerdem.data1 <- tfc.enerdem.data %>%
 #### Merge with energy service data
 all.data <- wdi.data %>%
   left_join(enerserv.data, by = c("country_id" = "country_id", "year" = "year")) %>%
-  select(country_id, country_name, iso3c, year, SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, energy_service) %>%
+  select(country_id, country_name, wem_regions, iso3c, year, SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, energy_service) %>%
   mutate(energy_service = as.numeric(energy_service * 1e06)) %>% # Original units
   arrange(country_name, year) %>%
   as_tibble()
@@ -407,12 +430,15 @@ all.data1 <- gdp.pop.data.wider %>%
   left_join(all.data, by = c("country_id" = "country_id", "year" = "year")) %>%#all.data %>%
   #left_join(gdp.pop.data.wider, by = c("country_id" = "country_id", "year" = "year")) %>%
   mutate(ES_pcap = energy_service / (Population)) %>%
-  select(country_id, country_name, iso3c, year, SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, ES_pcap, energy_service, GDP_PPP_pcap, GDP_PPP) %>%
+  mutate(Population = Population * 1e03) %>%
+  select(country_id, country_name, wem_regions, Population, iso3c, year, SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, ES_pcap, energy_service, GDP_PPP_pcap, GDP_PPP) %>%
   #mutate(value = as.numeric(value)) %>%
   group_by(country_id) %>%
   mutate(
     country_name = ifelse(is.na(country_name), get_mode(country_name), country_name),
-    iso3c = ifelse(is.na(iso3c), get_mode(iso3c), iso3c)
+    iso3c = ifelse(is.na(iso3c), get_mode(iso3c), iso3c),
+    wem_regions = ifelse(is.na(wem_regions), get_mode(wem_regions), wem_regions),
+    #
   ) %>%
   ungroup() %>%
   arrange(country_name, year) %>%
@@ -425,22 +451,337 @@ all.data1 <- gdp.pop.data.wider %>%
          urbanization_missing = ifelse(is.na(SP.URB.TOTL.IN.ZS), 1, 0)) %>%
   as_tibble()
 
+
 #############################################################################################
 ## Data wrangling for right format for Gompertz curve function
 
-all.data.gompertz <- all.data1 %>%
+# Use WEM land area and population data to calculate population density (future too)
+all.data1 <- all.data1 %>%
+  # Merge with land_mappings on country_id
+  left_join(land_mappings, by = c("country_id" = "country_id")) %>%
+  # group by country_id and check if EN.POP.DNST is missing, if so calculate by taking A_Land_Area divided by Population
+  group_by(country_id) %>%
+  mutate(EN.POP.DNST = (Population / A_Land_Area ) * 1e-03) # Rather be consistent with WEM
+
+
+# Linearly interpolate GINI and urbanization percentage using CAGR
+vars_to_fill <- c(#"GDP_PPP_pcap", "ES_pcap", "energy_service", "GDP_PPP", 
+                  "SI.POV.GINI", "SP.URB.TOTL.IN.ZS")
+
+all.data.gompertz1 <- reduce(
+  vars_to_fill,
+  function(df, var) {
+    df %>%
+      group_by(country_id) %>%
+      group_modify(~ gapfill(.x, var)) %>%
+      ungroup()
+  },
+  .init = all.data1
+)
+
+all.data.gompertz1 <- all.data.gompertz1 %>% ungroup()
+
+# Plot GINI and urbanization percentage using CAGR
+ggplot(all.data.gompertz1, aes(x=year, y = SI.POV.GINI, color = country_name, group = country_name)) +
+  geom_line() +
+  labs(title = "Gini Coefficient Over Time", x = "Year", y = "Gini Coefficient") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+ggplot(all.data.gompertz1, aes(x=year, y = SP.URB.TOTL.IN.ZS, color = country_name, group = country_name)) +
+  geom_line() +
+  labs(title = "Urbanization Percentage Over Time", x = "Year", y = "Urbanization Percentage") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+   
+# Log-quadratic Kuznets form - economic theory: gini = b0 + b1 * log(GDP_PPP_pcap) + b2 * (log(GDP_PPP_pcap))^2
+p_order <- 3
+n_points <- p_order + 1
+
+# Custom function to compute adaptive moving average - ideal max_k
+adaptive_rollmean <- function(x, max_k = 3) {
+  result <- rep(NA_real_, length(x))
+  for (i in seq_along(x)) {
+    for (k in max_k:1) {
+      if (i >= k && sum(!is.na(x[(i - k + 1):i])) == k) {
+        result[i] <- mean(x[(i - k + 1):i], na.rm = TRUE)
+        break
+      }
+    }
+  }
+  return(result)
+}
+
+# Apply it to your data
+all.data.gompertz_ma <- all.data.gompertz1 %>%
   ungroup() %>%
   group_by(country_id) %>%
   arrange(year) %>%
-  group_modify(~ gapfill(., "SI.POV.GINI")) %>%
-  group_modify(~ gapfill(., "SP.URB.TOTL.IN.ZS")) %>%
-  group_modify(~ gapfill(., "EN.POP.DNST")) %>%
+  mutate(Gini_growth = (SI.POV.GINI - lag(SI.POV.GINI)) / lag(SI.POV.GINI) * 100) %>%
+  mutate(Gini_growth_MA = adaptive_rollmean(Gini_growth, max_k = 10)) %>%
+  ungroup()
+
+
+# # Step 1: Compute growth rates and moving averages
+# all.data.gompertz <- all.data.gompertz1 %>%
+#   group_by(country_id) %>%
+#   arrange(country_id, year) %>%
+#   mutate(
+#     #GDP_growth = (GDP_PPP_pcap - lag(GDP_PPP_pcap)) / lag(GDP_PPP_pcap) * 100,
+#     Gini_growth = (SI.POV.GINI - lag(SI.POV.GINI)) / lag(SI.POV.GINI) * 100,
+#     #GDP_growth_MA = rollmean(GDP_growth, k = 3, fill = NA, align = "right"),
+#     Gini_growth_MA = rollmean(Gini_growth, k = 10, fill = NA, align = "right")
+#   )   %>%
+#   ungroup()
+
+
+projected_gini <- all.data.gompertz_ma %>%
+  group_by(country_id) %>%
+  arrange(year) %>%
+  group_split() %>%
+  purrr::map_dfr(function(df) {
+    # Check if there are any non-missing Gini values
+    non_missing_indices <- which(!is.na(df$SI.POV.GINI))
+    if (length(non_missing_indices) == 0) return(df)
+    
+    last_known_index <- max(non_missing_indices)
+    if (last_known_index == nrow(df)) return(df)
+    
+    # Get the last known Gini value and the last available MA growth rate
+    last_gini <- df$SI.POV.GINI[last_known_index]
+    valid_growths <- df$Gini_growth_MA[1:last_known_index]
+    last_growth <- tail(na.omit(valid_growths), 1)
+    
+    if (length(last_growth) == 0 || is.na(last_gini)) return(df)
+    
+    # Forward project Gini using the last known MA growth rate
+    for (i in (last_known_index + 1):nrow(df)) {
+      last_gini <- last_gini * (1 + last_growth / 100)
+      df$SI.POV.GINI[i] <- last_gini
+    }
+    
+    df
+  })
+
+# Plot Gini 
+ggplot(projected_gini, aes(x=year, y = SI.POV.GINI, color = country_name, group = country_name)) +
+  geom_line() +
+  labs(title = "Projected Gini Coefficient Over Time", x = "Year", y = "Gini Coefficient") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+
+########################################
+# Define the nonlinear model function
+# logistic_model <- deriv(
+#   ~ Asym / (1 + exp((xmid - GDP_PPP_pcap) / scal)),
+#   namevec = c("Asym", "xmid", "scal"),
+#   function.arg = c("GDP_PPP_pcap", "Asym", "xmid", "scal")
+# )
+# 
+# richards_curve <- deriv(
+#   ~ Asym / (1 + exp(-k * (log(GDP_PPP_pcap) - x0)))^v,
+#   namevec = c("Asym", "k", "x0", "v"),
+#   function.arg = c("GDP_PPP_pcap", "Asym","k", "x0", "v")
+# )
+# 
+# ggplot(all.data.gompertz1, aes(x= GDP_PPP_pcap, y = SI.POV.GINI, color = country_name, group = country_name)) +
+#   geom_line() +
+#   labs(title = "Projected Gini Coefficient Over Time", x = "Year", y = "Gini Coefficient") +
+#   theme_bw() +
+#   theme(legend.position = "none")
+# 
+# richards_curve <- deriv(
+#   ~ Asym / (1 + exp(-k * (log(GDP_PPP_pcap) - x0)))^v,
+#   namevec = c("Asym", "k", "x0", "v"),
+#   function.arg = c("GDP_PPP_pcap", "Asym","k", "x0", "v")
+# )
+# 
+# logistic_model <- deriv(
+#   ~ Asym / (1 + exp((xmid - GDP_PPP_pcap) / scal)),
+#   namevec = c("Asym", "xmid", "scal"),
+#   function.arg = c("GDP_PPP_pcap", "Asym", "xmid", "scal")
+# )
+# 
+# 
+# 
+# fit <- nlme(
+#   SI.POV.GINI ~ logistic_model(GDP_PPP_pcap, Asym, xmid, scal),
+#   data = all.data.gompertz1,
+#   fixed = Asym + xmid + scal ~ 1,
+#   #random = Asym + xmid + scal ~ 1 | country_name, # Allows for Asym, xmid and scal to vary by country
+#   random = Asym ~ 1 | country_name,
+#   start = c(Asym = 5000, xmid = 10000, scal = 1000),
+#   na.action = na.omit,
+#   control = nlmeControl(pnlsTol = 0.1, maxIter = 100)
+# )
+# 
+# fit <- nlme(
+#   SI.POV.GINI ~ richards_curve(GDP_PPP_pcap, Asym, k, x0, v),
+#   data = all.data.gompertz1,
+#   fixed = Asym + k + x0 + v ~ 1,
+#   #random = Asym + xmid + scal ~ 1 | country_name, # Allows for Asym, xmid and scal to vary by country
+#   random = Asym ~ 1 | country_name,
+#   start = c(Asym = 5000, k = 0.01, x0 = 10000, v = 1),
+#   na.action = na.omit,
+#   control = nlmeControl(pnlsTol = 0.1, maxIter = 100)
+# )
+
+
+all.data.gompertz.reg <- all.data.gompertz1 %>%
+  # Scale Gini to between 0 and 1 to satisfy logit transformation
+  mutate(
+    gini_scaled = SI.POV.GINI / 100,
+    logit_Gini = log(gini_scaled / (1 - gini_scaled)),
+    logit_Gini = ifelse(is.infinite(logit_Gini) | is.nan(logit_Gini), NA, logit_Gini),
+    Sigmoid_GDP = log(GDP_PPP_pcap/ (1 + GDP_PPP_pcap)),
+    Sigmoid_GDP = ifelse(is.infinite(Sigmoid_GDP) | is.nan(Sigmoid_GDP), NA, Sigmoid_GDP),
+    urban_scaled = SP.URB.TOTL.IN.ZS / 100,
+    logit_Urban = log(urban_scaled / (1 - urban_scaled)),
+    logit_Urban = ifelse(is.infinite(logit_Urban) | is.nan(logit_Urban), NA, logit_Urban)
+  ) %>%
+  
+  arrange(country_id, year) %>%
+  group_by(country_id) %>%
+  mutate(lag_logit_Gini = lag(logit_Gini)) %>%
+  ungroup() %>%
+  mutate(Year0 = year - 1960)
+
+ggplot(all.data.gompertz.reg, aes(x=Sigmoid_GDP, y = logit_Gini, color = country_name, group = country_name)) +
+  geom_line() +
+  #geom_smooth(method = "lm", formula = y ~ poly(x, 2), se = FALSE) +
+  #labs(title = "Gini Coefficient Over Time", x = "GDP PPP per Capita", y = "Logit Gini Coefficient") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+# Log-quadratic Kuznets form - economic theory: gini = b0 + b1 * log(GDP_PPP_pcap) + b2 * (log(GDP_PPP_pcap))^2
+
+
+all.data.gompertz.reg1 <- all.data.gompertz.reg %>%
+ nest(data = -country_id) %>%
+  mutate(
+    has_enough_data = map_lgl(data, ~ sum(!is.na(.x$logit_Gini) & !is.na(.x$Sigmoid_GDP)) >= n_points),
+    model = map2(data, has_enough_data, ~ if (.y) {
+      #gam(logit_Gini ~ s(GDP_PPP_pcap, k = p_order) , data = .x, na.action = na.exclude) #+  s(year, k = p_order), data = .x, na.action = na.exclude)
+      # This GAM
+      #gam(logit_Gini ~ s(Sigmoid_GDP, k = p_order) , data = .x, na.action = na.exclude)
+      
+      #lm(logit_Gini ~ poly(GDP_PPP_pcap, 3, raw = TRUE), data = .x, na.action = na.exclude)
+      lm(logit_Gini ~ Sigmoid_GDP, data = .x, na.action = na.exclude)
+      #lm(logit_Gini ~ poly(log(GDP_PPP_pcap), 2) , data = .x, na.action = na.exclude)
+    } else {
+      NULL
+    }),
+
+    data = map2(data, model, ~ {
+      if (!is.null(.y)) {
+        pred_logit <- predict(.y, newdata = .x)
+        pred_gini <- exp(pred_logit) / (1 + exp(pred_logit))
+        pred_gini_clamped <- pmin(pmax(pred_gini, 0), 1) * 100
+        
+        .x$gini_filled <- dplyr::if_else(
+          is.na(.x$SI.POV.GINI) & .x$year > 2010,
+          pred_gini_clamped,
+          .x$SI.POV.GINI
+        )
+      } else {
+        .x$gini_filled <- .x$SI.POV.GINI
+      }
+      .x
+    })
+    
+  ) %>%
+  select(country_id, data) %>%
+  unnest(data)
+
+View(all.data.gompertz.reg1 %>% filter(country_name == "Russia"))
+
+# This is the pipeline I have focused on
+p_order <- 10
+n_points <- 3 #p_order + 1
+
+all.data.gompertz.reg1 <- all.data.gompertz.reg %>%
+  nest(data = -country_id) %>%
+  mutate(
+    has_gini_data = map_lgl(data, ~ sum(!is.na(.x$logit_Gini) & !is.na(.x$Sigmoid_GDP) ) >= n_points),
+    has_urb_data = map_lgl(data, ~ sum(!is.na(.x$logit_Urban) & !is.na(.x$Sigmoid_GDP)) >= n_points),
+    
+    gini_model = map2(data, has_gini_data, ~ if (.y) {
+      #gam(logit_Gini ~ s(Sigmoid_GDP, k = p_order), data = .x, na.action = na.exclude)
+      lm(logit_Gini ~ Sigmoid_GDP + year, data = .x, na.action = na.exclude)
+    } else {
+      NULL
+    }),
+    
+    urb_model = map2(data, has_urb_data, ~ if (.y) {
+      #gam(logit_Urban ~ s(year, k = p_order), data = .x, na.action = na.exclude)
+      lm(logit_Urban ~ year, data = .x, na.action = na.exclude) #Sigmoid_GDP + 
+    } else {
+      NULL
+    }),
+    
+    data = pmap(list(data, gini_model, urb_model), function(df, g_model, u_model) {
+      if (!is.null(g_model)) {
+        pred_logit <- predict(g_model, newdata = df)
+        pred_gini <- exp(pred_logit) / (1 + exp(pred_logit))
+        pred_gini_clamped <- pmin(pmax(pred_gini, 0), 1) * 100
+        df$gini_filled <- dplyr::if_else(
+          is.na(df$SI.POV.GINI) & df$year > 2010,
+          pred_gini_clamped,
+          df$SI.POV.GINI
+        )
+      } else {
+        df$gini_filled <- df$SI.POV.GINI
+      }
+      
+      if (!is.null(u_model)) {
+        pred_urb_logit <- predict(u_model, newdata = df)
+        pred_urb <- exp(pred_urb_logit) / (1 + exp(pred_urb_logit))
+        pred_urb_clamped <- pmin(pmax(pred_urb, 0), 1) * 100
+        df$urb_filled <- dplyr::if_else(
+          is.na(df$SP.URB.TOTL.IN.ZS) & df$year > 2010,
+          pred_urb_clamped,
+          df$SP.URB.TOTL.IN.ZS
+        )
+      } else {
+        df$urb_filled <- df$SP.URB.TOTL.IN.ZS
+      }
+      
+      df
+    })
+  ) %>%
+  select(country_id, data) %>%
+  unnest(data) 
+
+#View(all.data.gompertz.reg1 %>% filter(country_name == "Singapore"))  
+  
+p1 <- ggplotly(ggplot(all.data.gompertz.reg1, aes(x=year, y = gini_filled, color = country_name, group = country_name)) +
+                 geom_line() +
+                 labs(title = "Gini Coefficient Over Time", x = "Year", y = "Gini Coefficient") +
+                 theme_bw() )# +
+                 #theme(legend.position = "none"))
+#Save to interactive html
+htmlwidgets::saveWidget(p1, here::here("plots", "gini_over_time.html"), selfcontained = TRUE)
+
+p1 <- ggplotly(ggplot(all.data.gompertz.reg1, aes(x=year, y = urb_filled, color = country_name, group = country_name)) +
+                 geom_line() +
+                 labs(title = "Urbanization Over Time", x = "Year", y = "Urbanization") +
+                 theme_bw() #+
+                 #theme(legend.position = "none")
+               )
+#Save to interactive html
+htmlwidgets::saveWidget(p1, here::here("plots", "urb_over_time.html"), selfcontained = TRUE)
+
+
+last_historical_year <- 2023
+all.data.gompertz <- all.data.gompertz.reg1 %>%
   # Make all columns except country_id, country_name, iso3c, year numeric
   mutate(across(c(SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, energy_service, ES_pcap, GDP_PPP_pcap, prop_TFC_PTR), as.numeric)) %>%
   # Set values of ES_pcap, energy_service and prop_TFC_PTR to NA for years after 2024
-  mutate(ES_pcap = ifelse(year > 2024, NA, ES_pcap),
-         energy_service = ifelse(year > 2024, NA, energy_service),
-         prop_TFC_PTR = ifelse(year > 2024, NA, prop_TFC_PTR)) %>%
+  mutate(ES_pcap = ifelse(year > last_historical_year, NA, ES_pcap),
+         energy_service = ifelse(year > last_historical_year, NA, energy_service),
+         prop_TFC_PTR = ifelse(year > last_historical_year, NA, prop_TFC_PTR)) %>%
   mutate(lag_GDP_PPP_pcap = lag(GDP_PPP_pcap),
          lag_ES_pcap = lag(ES_pcap),
          lag_energy_service = lag(energy_service),
@@ -458,12 +799,36 @@ all.data.gompertz <- all.data1 %>%
   ungroup() %>%
   filter(GDP_PPP != 0) %>%
   arrange(country_id, year) %>%
-  mutate(historical_data = ifelse(year <= 2024, 1, 0))
+  mutate(historical_data = ifelse(year <= 2024, 1, 0)) %>%
+  select(country_id, country_name, iso3c, wem_regions, Population, year,
+         Gini, density_psqkm, urbanization_perc, ES_pcap, energy_service, GDP_PPP_pcap,
+         GDP_PPP, prop_TFC_PTR, Land_Area = A_Land_Area, historical_data)
+
+# additional_imputation <- all.data.gompertz %>%
+#   ungroup() %>%
+#   group_by(wem_regions, year) #%>%
+#   # If Gini or urbanization_perc is missing, fill with mean of the region for that year
+#   #mutate(
+#   #  Gini = ifelse(is.na(Gini), mean(Gini, na.rm = TRUE), Gini),
+#   #  urbanization_perc = ifelse(is.na(urbanization_perc), mean(urbanization_perc, na.rm = TRUE), urbanization_perc)
+#   #) 
+
+# View(additional_imputation %>% filter(wem_regions == "Arabian Peninsula"))
+
+p1 <- ggplotly(ggplot(all.data.gompertz, aes(x=year, y = urbanization_perc, color = country_name, group = country_name)) +
+                 geom_line() +
+                 labs(title = "Urbanization Over Time", x = "Year", y = "Urbanization") +
+                 theme_bw() #+
+               #theme(legend.position = "none")
+)
+#Save to interactive html
+htmlwidgets::saveWidget(p1, here::here("plots", "urb_over_time.html"), selfcontained = TRUE)
+
 
 ########## Nice extrapolation: https://stackoverflow.com/questions/74858960/how-to-extrapolate-values-over-dates-using-r
 
 ### Save to rds in data folder
-saveRDS(all.data.gompertz, here::here("data", "all_data_wem_espcap_gapfill.rds"))
-write_csv(all.data.gompertz, here::here("data", "all_data_wem_espacp_gapfill.csv"))
+saveRDS(all.data.gompertz, here::here("data", "all_data_wem_espcap_imputation.rds"))
+write_csv(all.data.gompertz, here::here("data", "all_data_wem_espacp_imputation.csv"))
 
 #########################################################################################################################################
