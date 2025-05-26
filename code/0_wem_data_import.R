@@ -656,44 +656,44 @@ ggplot(all.data.gompertz.reg, aes(x=Sigmoid_GDP, y = logit_Gini, color = country
   theme(legend.position = "none")
 
 # Log-quadratic Kuznets form - economic theory: gini = b0 + b1 * log(GDP_PPP_pcap) + b2 * (log(GDP_PPP_pcap))^2
-
-
-all.data.gompertz.reg1 <- all.data.gompertz.reg %>%
- nest(data = -country_id) %>%
-  mutate(
-    has_enough_data = map_lgl(data, ~ sum(!is.na(.x$logit_Gini) & !is.na(.x$Sigmoid_GDP)) >= n_points),
-    model = map2(data, has_enough_data, ~ if (.y) {
-      #gam(logit_Gini ~ s(GDP_PPP_pcap, k = p_order) , data = .x, na.action = na.exclude) #+  s(year, k = p_order), data = .x, na.action = na.exclude)
-      # This GAM
-      #gam(logit_Gini ~ s(Sigmoid_GDP, k = p_order) , data = .x, na.action = na.exclude)
-      
-      #lm(logit_Gini ~ poly(GDP_PPP_pcap, 3, raw = TRUE), data = .x, na.action = na.exclude)
-      lm(logit_Gini ~ Sigmoid_GDP, data = .x, na.action = na.exclude)
-      #lm(logit_Gini ~ poly(log(GDP_PPP_pcap), 2) , data = .x, na.action = na.exclude)
-    } else {
-      NULL
-    }),
-
-    data = map2(data, model, ~ {
-      if (!is.null(.y)) {
-        pred_logit <- predict(.y, newdata = .x)
-        pred_gini <- exp(pred_logit) / (1 + exp(pred_logit))
-        pred_gini_clamped <- pmin(pmax(pred_gini, 0), 1) * 100
-        
-        .x$gini_filled <- dplyr::if_else(
-          is.na(.x$SI.POV.GINI) & .x$year > 2010,
-          pred_gini_clamped,
-          .x$SI.POV.GINI
-        )
-      } else {
-        .x$gini_filled <- .x$SI.POV.GINI
-      }
-      .x
-    })
-    
-  ) %>%
-  select(country_id, data) %>%
-  unnest(data)
+# 
+# 
+# all.data.gompertz.reg1 <- all.data.gompertz.reg %>%
+#  nest(data = -country_id) %>%
+#   mutate(
+#     has_enough_data = map_lgl(data, ~ sum(!is.na(.x$logit_Gini) & !is.na(.x$Sigmoid_GDP)) >= n_points),
+#     model = map2(data, has_enough_data, ~ if (.y) {
+#       #gam(logit_Gini ~ s(GDP_PPP_pcap, k = p_order) , data = .x, na.action = na.exclude) #+  s(year, k = p_order), data = .x, na.action = na.exclude)
+#       # This GAM
+#       #gam(logit_Gini ~ s(Sigmoid_GDP, k = p_order) , data = .x, na.action = na.exclude)
+#       
+#       #lm(logit_Gini ~ poly(GDP_PPP_pcap, 3, raw = TRUE), data = .x, na.action = na.exclude)
+#       lm(logit_Gini ~ Sigmoid_GDP + yeart, data = .x, na.action = na.exclude)
+#       #lm(logit_Gini ~ poly(log(GDP_PPP_pcap), 2) , data = .x, na.action = na.exclude)
+#     } else {
+#       NULL
+#     }),
+# 
+#     data = map2(data, model, ~ {
+#       if (!is.null(.y)) {
+#         pred_logit <- predict(.y, newdata = .x)
+#         pred_gini <- exp(pred_logit) / (1 + exp(pred_logit))
+#         pred_gini_clamped <- pmin(pmax(pred_gini, 0), 1) * 100
+#         
+#         .x$gini_filled <- dplyr::if_else(
+#           is.na(.x$SI.POV.GINI) & .x$year > 2010,
+#           pred_gini_clamped,
+#           .x$SI.POV.GINI
+#         )
+#       } else {
+#         .x$gini_filled <- .x$SI.POV.GINI
+#       }
+#       .x
+#     })
+#     
+#   ) %>%
+#   select(country_id, data) %>%
+#   unnest(data)
 
 # View(all.data.gompertz.reg1 %>% filter(country_name == "Russia"))
 
@@ -701,63 +701,372 @@ all.data.gompertz.reg1 <- all.data.gompertz.reg %>%
 p_order <- 10
 n_points <- 3 #p_order + 1
 
+# Create dummy column for when year = 2023
+all.data.gompertz.reg <- all.data.gompertz.reg %>%
+  #filter(country_name != "United Arab Emirates") %>%
+  mutate(year_2023 = ifelse(year == 2023, 1, 0)) %>%
+  mutate(
+    GDP_low = Sigmoid_GDP * (GDP_PPP_pcap < 20000),
+    GDP_high = Sigmoid_GDP * (GDP_PPP_pcap >= 20000)
+  )
+
+# # Nesting per country
 all.data.gompertz.reg1 <- all.data.gompertz.reg %>%
   nest(data = -country_id) %>%
   mutate(
     has_gini_data = map_lgl(data, ~ sum(!is.na(.x$logit_Gini) & !is.na(.x$Sigmoid_GDP) ) >= n_points),
     has_urb_data = map_lgl(data, ~ sum(!is.na(.x$logit_Urban) & !is.na(.x$Sigmoid_GDP)) >= n_points),
-    
+
     gini_model = map2(data, has_gini_data, ~ if (.y) {
       #gam(logit_Gini ~ s(Sigmoid_GDP, k = p_order), data = .x, na.action = na.exclude)
       lm(logit_Gini ~ Sigmoid_GDP + year, data = .x, na.action = na.exclude)
+      #lm(logit_Gini ~ GDP_low + GDP_high + year, data = .x, na.action = na.exclude) # To control for different regimes of effect of inequality
     } else {
       NULL
     }),
-    
+
     urb_model = map2(data, has_urb_data, ~ if (.y) {
       #gam(logit_Urban ~ s(year, k = p_order), data = .x, na.action = na.exclude)
-      lm(logit_Urban ~ year, data = .x, na.action = na.exclude) #Sigmoid_GDP + 
+      lm(logit_Urban ~ year, data = .x, na.action = na.exclude) #Sigmoid_GDP +
     } else {
       NULL
     }),
-    
+
     data = pmap(list(data, gini_model, urb_model), function(df, g_model, u_model) {
       if (!is.null(g_model)) {
         pred_logit <- predict(g_model, newdata = df)
         pred_gini <- exp(pred_logit) / (1 + exp(pred_logit))
         pred_gini_clamped <- pmin(pmax(pred_gini, 0), 1) * 100
         df$gini_filled <- dplyr::if_else(
-          is.na(df$SI.POV.GINI) & df$year > 2010,
+          is.na(df$SI.POV.GINI) & df$year > 2000,
           pred_gini_clamped,
           df$SI.POV.GINI
         )
       } else {
         df$gini_filled <- df$SI.POV.GINI
       }
-      
+
       if (!is.null(u_model)) {
         pred_urb_logit <- predict(u_model, newdata = df)
         pred_urb <- exp(pred_urb_logit) / (1 + exp(pred_urb_logit))
         pred_urb_clamped <- pmin(pmax(pred_urb, 0), 1) * 100
         df$urb_filled <- dplyr::if_else(
-          is.na(df$SP.URB.TOTL.IN.ZS) & df$year > 2010,
+          is.na(df$SP.URB.TOTL.IN.ZS) & df$year > 2000,
           pred_urb_clamped,
           df$SP.URB.TOTL.IN.ZS
         )
       } else {
         df$urb_filled <- df$SP.URB.TOTL.IN.ZS
       }
-      
+
       df
     })
   ) %>%
   select(country_id, data) %>%
-  unnest(data) 
+  unnest(data)
+
+# ###############################################################################
+# library(dplyr)
+# library(nlme)
+# 
+# # Prepare the data
+# all.data.gompertz.reg <- all.data.gompertz.reg %>%
+#   filter(country_name != "United Arab Emirates") %>%
+#   mutate(
+#     year_2023 = ifelse(year == 2023, 1, 0),
+#     GDP_low = log(GDP_PPP_pcap) * (GDP_PPP_pcap < 5000), #Sigmoid_GDP * (GDP_PPP_pcap < 2000),
+#     GDP_high = log(GDP_PPP_pcap) * (GDP_PPP_pcap >=  5000)#Sigmoid_GDP * (GDP_PPP_pcap >= 20000)
+#   )
+# 
+# # Filter for valid observations
+# gini_data <- all.data.gompertz.reg %>%
+#   filter(!is.na(logit_Gini), !is.na(Sigmoid_GDP))
+# 
+# urb_data <- all.data.gompertz.reg %>%
+#   filter(!is.na(logit_Urban), !is.na(Sigmoid_GDP))
+# 
+# # Fit mixed-effects models
+# library(splines)
+# gini_model <- tryCatch({
+#   if (nrow(gini_data) >= n_points) {
+#     nlme::lme(
+#       logit_Gini ~ GDP_low + GDP_high,
+#       #logit_Gini ~ ns(log(GDP_PPP_pcap), df = 3),
+#       #logit_Gini ~ ns(log(GDP_PPP_pcap), df = 3) + year,
+#       #logit_Gini ~ log(GDP_PPP_pcap) + I(log(GDP_PPP_pcap)^2) + year,
+#       #random =  ~ 1 | country_id,
+#       random =  ~ year | country_id,
+#       data = gini_data,
+#       na.action = na.exclude,
+#       control = lmeControl(opt = "optim")
+#     )
+#   } else {
+#     NULL
+#   }
+# }, error = function(e) NULL)
+# 
+# # Kuznets Hypothesis
+# # gini_model <- tryCatch({
+# #   if (nrow(gini_data) >= n_points) {
+# #     gini_data <- gini_data %>%
+# #       mutate(
+# #         GDP = log(GDP_PPP_pcap),
+# #         GDP_sq = GDP^2
+# #       )
+# # 
+# #     nlme::lme(
+# #       logit_Gini ~ GDP + GDP_sq,
+# #       random =  ~1 | country_id,
+# #       data = gini_data,
+# #       na.action = na.exclude,
+# #       control = lmeControl(opt = "optim")
+# #     )
+# #   } else {
+# #     NULL
+# #   }
+# # }, error = function(e) NULL)
+# 
+# 
+# summary(gini_model)
+# # 
+# urb_model <- tryCatch({
+#   if (nrow(urb_data) >= n_points) {
+#     nlme::lme(
+#       logit_Urban ~ year,
+#       random = ~1 | country_id,
+#       data = urb_data,
+#       na.action = na.exclude,
+#       control = lmeControl(opt = "optim")
+#     )
+#   } else {
+#     NULL
+#   }
+# }, error = function(e) NULL)
+# 
+# # Prepare prediction data
+# pred_data_gini <- all.data.gompertz.reg %>%
+#   filter(!is.na(GDP_low), !is.na(GDP_high), !is.na(year), !is.na(country_id))
+# 
+# pred_data_urb <- all.data.gompertz.reg %>%
+#   filter(!is.na(year), !is.na(country_id))
+# 
+# # Predict Gini
+# if (!is.null(gini_model)) {
+#   pred_logit <- predict(gini_model, newdata = pred_data_gini, level = 1)
+#   pred_gini <- exp(pred_logit) / (1 + exp(pred_logit))
+#   pred_gini_clamped <- pmin(pmax(pred_gini, 0), 1) * 100
+# 
+#   pred_df_gini <- pred_data_gini %>%
+#     mutate(pred_gini_clamped = pred_gini_clamped)
+# } else {
+#   pred_df_gini <- NULL
+# }
+# 
+# # Predict Urban
+# if (!is.null(urb_model)) {
+#   pred_urb_logit <- predict(urb_model, newdata = pred_data_urb, level = 1)
+#   pred_urb <- exp(pred_urb_logit) / (1 + exp(pred_urb_logit))
+#   pred_urb_clamped <- pmin(pmax(pred_urb, 0), 1) * 100
+# 
+#   pred_df_urb <- pred_data_urb %>%
+#     mutate(pred_urb_clamped = pred_urb_clamped)
+# } else {
+#   pred_df_urb <- NULL
+# }
+# # 
+# # # Join predictions back to full dataset and fill missing values
+# all.data.gompertz.reg1 <- all.data.gompertz.reg %>%
+#   left_join(pred_df_gini %>% select(country_id, year, pred_gini_clamped), by = c("country_id", "year")) %>%
+#   left_join(pred_df_urb %>% select(country_id, year, pred_urb_clamped), by = c("country_id", "year")) %>%
+#   mutate(
+#     gini_filled = if_else(is.na(SI.POV.GINI) & year > 2000, pred_gini_clamped, SI.POV.GINI),
+#     urb_filled = if_else(is.na(SP.URB.TOTL.IN.ZS) & year > 2000, pred_urb_clamped, SP.URB.TOTL.IN.ZS)
+#   ) %>%
+#   select(-pred_gini_clamped, -pred_urb_clamped)
+
+# #########################################
+# NLME
+
+
+# Treat as Pooled series: No individual variation and looks flat
+# # Check if there is enough data for modeling
+# has_gini_data <- sum(!is.na(all.data.gompertz.reg$logit_Gini) & !is.na(all.data.gompertz.reg$Sigmoid_GDP)) >= n_points
+# has_urb_data <- sum(!is.na(all.data.gompertz.reg$logit_Urban) & !is.na(all.data.gompertz.reg$Sigmoid_GDP)) >= n_points
+# 
+# # Fit models if applicable
+# gini_model <- if (has_gini_data) {
+#   lm(logit_Gini ~ GDP_low + GDP_high + year, data = all.data.gompertz.reg, na.action = na.exclude)
+# } else {
+#   NULL
+# }
+# 
+# urb_model <- if (has_urb_data) {
+#   lm(logit_Urban ~ year, data = all.data.gompertz.reg, na.action = na.exclude)
+# } else {
+#   NULL
+# }
+# 
+# # Predict and fill missing values
+# all.data.gompertz.reg1 <- all.data.gompertz.reg %>%
+#   mutate(
+#     gini_filled = if (!is.null(gini_model)) {
+#       pred_logit = predict(gini_model, newdata = .)
+#       pred_gini = exp(pred_logit) / (1 + exp(pred_logit))
+#       pred_gini_clamped = pmin(pmax(pred_gini, 0), 1) * 100
+#       dplyr::if_else(is.na(SI.POV.GINI) & year > 2000, pred_gini_clamped, SI.POV.GINI)
+#     } else {
+#       SI.POV.GINI
+#     },
+#     urb_filled = if (!is.null(urb_model)) {
+#       pred_urb_logit = predict(urb_model, newdata = .)
+#       pred_urb = exp(pred_urb_logit) / (1 + exp(pred_urb_logit))
+#       pred_urb_clamped = pmin(pmax(pred_urb, 0), 1) * 100
+#       dplyr::if_else(is.na(SP.URB.TOTL.IN.ZS) & year > 2000, pred_urb_clamped, SP.URB.TOTL.IN.ZS)
+#     } else {
+#       SP.URB.TOTL.IN.ZS
+#     }
+#   )
+# 
+### Plots
+
+create_theme1 <- function(rel.size = 1) {
+  theme(
+    axis.title.y = element_text(size = 18 * rel.size, family = "ShellMedium"),
+    axis.title.x = element_text(size = 18 * rel.size, family = "ShellMedium"),
+    axis.text.y = element_text(size = 16 * rel.size, family = "ShellMedium"),
+    axis.text.x = element_text(size = 16 * rel.size, family = "ShellMedium", angle = 45, hjust = 1),
+    plot.margin = margin(l = 5, r = 5, t = 5, b = 5),
+    legend.title = element_text(family = "ShellMedium", size = 16 * rel.size),
+    legend.position = "top",
+    legend.text = element_text(size = 15 * rel.size, family = "ShellMedium"),
+    legend.background = element_rect(fill = "white", color = "black"),
+    plot.background = element_rect(fill = "white"),
+    panel.background = element_rect(fill = "white"),
+    panel.grid.major = element_line(color = "gray", linetype = "dashed"),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(size = 18 * rel.size, family = "ShellMedium", hjust = 0.5),
+    plot.caption = element_blank(),
+    plot.subtitle = element_blank(),
+    strip.text = element_text(size = 16 * rel.size, family = "ShellMedium"),
+    strip.background = element_rect(fill = "lightgray", color = "black"),
+    panel.border = element_blank()
+    
+  )
+}
 
 #View(all.data.gompertz.reg1 %>% filter(country_name == "Singapore"))  
+
+shell.brand.palette <- readRDS(here::here("data", "shell_brand_palette.rds"))
+
+plot_data <- shell.brand.palette %>%
+  mutate(Hex = paste0("#", Hex)) %>%
+  mutate(country_id = row_number()) %>% 
+  left_join(all.data.gompertz.reg1 , by = "country_id") #%>%
+  #distinct()
+
+p1 <- ggplot(plot_data, aes(x = year, y = gini_filled, colour = Hex)) +
+  geom_line(aes(group = country_name), linetype = "dashed") +
+  geom_line(aes(y = SI.POV.GINI, group = country_name), linetype = "solid")  +
+  theme_bw() + create_theme1(2) +
+  # geom_text(data = subset(plot_data, !duplicated(country_name, fromLast = TRUE)),
+  #           aes(label = country_name), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02),
+  #           size = rel(8)) +
+  theme(legend.position = "none") +
+  labs(title = "Income Inequality Over Time", 
+       x = "Year", y = "Income inequality (Gini)") +
+  scale_color_identity() #+
+# Add Gompertz line and add label saying Gompertz Model fit
+#geom_line(data = fitted_values, aes(x = log_GDP_pcap, y = ES_pcap), color = "black", linetype = "solid", linewidth = 2) #+
+#annotate("text", x = max(fitted_values$log_GDP_pcap) - 0.5, y = max(fitted_values$ES_pcap) - 0.5, 
+#         label = "Gompertz Model Fit", color = "black", size = 10, hjust = 1, vjust = 1) 
+p1
+# Save p1 to png
+ggplotly(p1 + theme(legend.position = "none")) %>%
+  #layout(title = "Income Inequality Over Time",
+  #       xaxis = list(title = "Year"),
+   #      yaxis = list(title = "Income inequality (Gini)")) %>%
+  htmlwidgets::saveWidget(here::here("plots/predicted_gini.html"), selfcontained = TRUE)
+
+ggsave(filename = here::here("plots", "forecast_gini.png"), plot = p1, width = 10, height = 6.3, dpi = 250)
+
+p1 <- ggplot(plot_data, aes(x = year, y = urb_filled, colour = Hex)) +
+  geom_line(aes(group = country_name), linetype = "dashed") +
+  geom_line(aes(y = SP.URB.TOTL.IN.ZS, group = country_name), linetype = "solid")  +
+  theme_bw() + create_theme1(2) +
+  # geom_text(data = subset(plot_data, !duplicated(country_name, fromLast = TRUE)),
+  #           aes(label = country_name), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02),
+  #           size = rel(8)) +
+  theme(legend.position = "none") +
+  labs(title = "Urbanization Over Time", 
+       x = "Year", y = "Urbanization (%)") +
+  scale_color_identity() #+
+# Add Gompertz line and add label saying Gompertz Model fit
+#geom_line(data = fitted_values, aes(x = log_GDP_pcap, y = ES_pcap), color = "black", linetype = "solid", linewidth = 2) #+
+#annotate("text", x = max(fitted_values$log_GDP_pcap) - 0.5, y = max(fitted_values$ES_pcap) - 0.5, 
+#         label = "Gompertz Model Fit", color = "black", size = 10, hjust = 1, vjust = 1) 
+p1
+# Save p1 to png
+ggplotly(p1 + theme(legend.position = "none")) %>%
+  #layout(title = "Income Inequality Over Time",
+  #       xaxis = list(title = "Year"),
+  #      yaxis = list(title = "Income inequality (Gini)")) %>%
+  htmlwidgets::saveWidget(here::here("plots/predicted_urbani.html"), selfcontained = TRUE)
+
+ggsave(filename = here::here("plots", "forecast_urban.png"), plot = p1, width = 10, height = 6.3, dpi = 250)
+
+p1 <- ggplot(plot_data, aes(x = GDP_PPP_pcap, y = gini_filled, colour = Hex)) +
+  geom_line(aes(group = country_name), linetype = "dashed") +
+  geom_line(aes(y = SI.POV.GINI, group = country_name), linetype = "solid")  +
+  theme_bw() + create_theme1(2) +
+  # geom_text(data = subset(plot_data, !duplicated(country_name, fromLast = TRUE)),
+  #           aes(label = country_name), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02),
+  #           size = rel(8)) +
+  theme(legend.position = "none") +
+  labs(title = "Income Inequality vs GDP", 
+       x = "GDP/capita (USD 2018 Real) ", y = "Income inequality (Gini)") +
+  scale_color_identity() #+
+# Add Gompertz line and add label saying Gompertz Model fit
+#geom_line(data = fitted_values, aes(x = log_GDP_pcap, y = ES_pcap), color = "black", linetype = "solid", linewidth = 2) #+
+#annotate("text", x = max(fitted_values$log_GDP_pcap) - 0.5, y = max(fitted_values$ES_pcap) - 0.5, 
+#         label = "Gompertz Model Fit", color = "black", size = 10, hjust = 1, vjust = 1) 
+p1
+# Save p1 to png
+ggplotly(p1 + theme(legend.position = "none")) %>%
+  #layout(title = "Income Inequality Over Time",
+  #       xaxis = list(title = "Year"),
+  #      yaxis = list(title = "Income inequality (Gini)")) %>%
+  htmlwidgets::saveWidget(here::here("plots/predicted_gini_gdp.html"), selfcontained = TRUE)
+
+ggsave(filename = here::here("plots", "forecast_gini_gdp.png"), plot = p1, width = 10, height = 6.3, dpi = 250)
+
+p1 <- ggplot(plot_data, aes(x = GDP_PPP_pcap, y = gini_filled, colour = Hex)) +
+  geom_line(aes(group = country_name), linetype = "dashed") +
+  geom_line(aes(y = SI.POV.GINI, group = country_name), linetype = "solid")  +
+  theme_bw() + create_theme1(2) +
+  # geom_text(data = subset(plot_data, !duplicated(country_name, fromLast = TRUE)),
+  #           aes(label = country_name), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02),
+  #           size = rel(8)) +
+  theme(legend.position = "none") +
+  labs(title = "Income Inequality vs GDP", 
+       x = "GDP/capita (USD 2018 Real) ", y = "Income inequality (Gini)") +
+  scale_color_identity() #+
+# Add Gompertz line and add label saying Gompertz Model fit
+#geom_line(data = fitted_values, aes(x = log_GDP_pcap, y = ES_pcap), color = "black", linetype = "solid", linewidth = 2) #+
+#annotate("text", x = max(fitted_values$log_GDP_pcap) - 0.5, y = max(fitted_values$ES_pcap) - 0.5, 
+#         label = "Gompertz Model Fit", color = "black", size = 10, hjust = 1, vjust = 1) 
+p1
+# Save p1 to png
+ggplotly(p1 + theme(legend.position = "none")) %>%
+  #layout(title = "Income Inequality Over Time",
+  #       xaxis = list(title = "Year"),
+  #      yaxis = list(title = "Income inequality (Gini)")) %>%
+  htmlwidgets::saveWidget(here::here("plots/predicted_gini_gdp.html"), selfcontained = TRUE)
+
+ggsave(filename = here::here("plots", "forecast_gini_gdp.png"), plot = p1, width = 10, height = 6.3, dpi = 250)
   
 p1 <- ggplotly(ggplot(all.data.gompertz.reg1, aes(x=year, y = gini_filled, color = country_name, group = country_name)) +
-                 geom_line() +
+                 geom_line(linetype = "dashed") +
+                 geom_line(aes(y = SI.POV.GINI), linetype = "solid") +
                  labs(title = "Gini Coefficient Over Time", x = "Year", y = "Gini Coefficient") +
                  theme_bw() )# +
                  #theme(legend.position = "none"))
@@ -765,13 +1074,25 @@ p1 <- ggplotly(ggplot(all.data.gompertz.reg1, aes(x=year, y = gini_filled, color
 htmlwidgets::saveWidget(p1, here::here("plots", "gini_over_time.html"), selfcontained = TRUE)
 
 p1 <- ggplotly(ggplot(all.data.gompertz.reg1, aes(x=year, y = urb_filled, color = country_name, group = country_name)) +
-                 geom_line() +
+                 geom_line(linetype = "dashed") +
+                 geom_line(aes(y = SP.URB.TOTL.IN.ZS), linetype = "solid") +
                  labs(title = "Urbanization Over Time", x = "Year", y = "Urbanization") +
                  theme_bw() #+
                  #theme(legend.position = "none")
                )
 #Save to interactive html
 htmlwidgets::saveWidget(p1, here::here("plots", "urb_over_time.html"), selfcontained = TRUE)
+
+p1 <- ggplotly(ggplot(all.data.gompertz.reg1, aes(x=GDP_PPP_pcap, y = gini_filled, color = country_name, group = country_name)) +
+                 geom_line(linetype = "dashed") +
+                 geom_line(aes(y = SI.POV.GINI), linetype = "solid") +
+                 labs(title = "Gini Coefficient vs GDP (Kuznets)", x = "GDP per capita", y = "Gini Coefficient") +
+                 theme_bw() )# +
+               #theme(legend.position = "none")
+
+#Save to interactive html
+htmlwidgets::saveWidget(p1, here::here("plots", "gini_vs_gdp.html"), selfcontained = TRUE)
+
 
 all.data.gompertz.reg1 <- all.data.gompertz.reg1 %>%
   mutate(SI.POV.GINI = gini_filled,
@@ -818,14 +1139,14 @@ all.data.gompertz <- all.data.gompertz.reg1 %>%
 
 # View(additional_imputation %>% filter(wem_regions == "Arabian Peninsula"))
 
-p1 <- ggplotly(ggplot(all.data.gompertz, aes(x=year, y = urbanization_perc, color = country_name, group = country_name)) +
-                 geom_line() +
-                 labs(title = "Urbanization Over Time", x = "Year", y = "Urbanization") +
-                 theme_bw() #+
-               #theme(legend.position = "none")
-)
-#Save to interactive html
-htmlwidgets::saveWidget(p1, here::here("plots", "urb_over_time.html"), selfcontained = TRUE)
+# p1 <- ggplotly(ggplot(all.data.gompertz, aes(x=year, y = urbanization_perc, color = country_name, group = country_name)) +
+#                  geom_line() +
+#                  labs(title = "Urbanization Over Time", x = "Year", y = "Urbanization") +
+#                  theme_bw() #+
+#                #theme(legend.position = "none")
+# )
+# #Save to interactive html
+# htmlwidgets::saveWidget(p1, here::here("plots", "urb_over_time.html"), selfcontained = TRUE)
 
 
 ########## Nice extrapolation: https://stackoverflow.com/questions/74858960/how-to-extrapolate-values-over-dates-using-r
