@@ -9,8 +9,8 @@ library(nlme)
 data <- readRDS("data/all_data_wem_espcap_imputation.rds")
 
 # Define the Gompertz function
-gompertz <-   function(Year0, a, b, c) {
-    a * exp(-b * exp(-c * Year0))
+gompertz <-   function(GDP_PPP_pcap, a, b, c) {
+    a * exp(-b * exp(-c * GDP_PPP_pcap))
   }
 
 
@@ -29,12 +29,12 @@ data_predict <- subset(data,data$year > 2023)
 # Fit the nonlinear mixed-effects model
 
 mixed_model <- nlme(
-  ES_pcap ~ gompertz(Year0, a, b, c),
+  ES_pcap ~ gompertz(GDP_PPP_pcap ,a, b, c),
   data = data_input,
   fixed = a + b + c ~ 1,
-  random = a + b  ~ 1 | country_name, # Only 'a' varies by country
-  start = c(a = 500, b = 1.2, c = 0.1),
-  control = nlmeControl(maxIter = 50, pnlsTol = 1e-6)
+  random = a + b ~ 1 | country_name, # Only 'a' varies by country
+  start = c(a = 500, b = 0.5, c = 0.001),
+  control = nlmeControl(maxIter = 100, pnlsTol = 1e-6)
 )
 
 summary(mixed_model)
@@ -98,7 +98,7 @@ combined<- data_input %>%
 
 # Extract the last point for each country in the Observed data
 line_labels <- combined %>%
-  filter(Source == "Observed") %>%
+  filter(Source == "Predicted") %>%
   group_by(country_name) %>%
   filter(GDP_PPP_pcap == max(GDP_PPP_pcap)) %>%
   ungroup()

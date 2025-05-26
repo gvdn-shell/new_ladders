@@ -47,8 +47,8 @@ Scurve2 <- function(x, gini_index, Asym, xmid, scal, c, b) {
 #   a * exp(-b * exp(-c * t)) + d * pop_density + e * gini_index
 # }
 
-gompertz <- function(t, a, b,alpha, beta1,gamma, pop_density, gini_index) {
-  result <- (a * exp(-b * exp(-c * t * pop_density)) ^ gini_index)
+gompertz <- function(a, b,alpha, beta, density_psqkm, Gini) {
+  result <- (a + b * density_psqkm) * exp(alpha * Gini * exp(beta * GDP_PPP_pcap))
 }
 
 
@@ -396,6 +396,11 @@ Gompertz_model <- deriv(
   function.arg = c("GDP_PPP_pcap", "density_psqkm", "Year0", "alpha", "b", "beta1", "gamma", "Gini")
 )
 
+Gompertz_model2 <- deriv(
+  ~ (a + b * density_psqkm) * exp(-alpha * Gini * exp(-beta * GDP_PPP_pcap)),
+  namevec = c("a", "b","alpha", "beta"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "a", "b", "alpha", "beta", "Gini")
+)
 
 
 # Fit the model
@@ -474,10 +479,23 @@ fit5 <- nlme(
   )
 
 summary(fit5)
+
+
+fit6 <- nlme(
+  ES_pcap ~ Gompertz_model2(GDP_PPP_pcap, density_psqkm, a, b, alpha, beta, Gini),
+  data = data1,
+  fixed = a + b + alpha + beta ~ 1,
+  random = alpha + b   ~ 1 | country_name,
+  start = c(a = 1000, b = 0.1, alpha = 1, beta = 0.001),
+  na.action = na.omit,
+  control = nlmeControl(maxIter = 100, pnlsTol = 0.1)
+)
+
+summary(fit6)
 # Copy summary table in neatly formatted condition and save it as a .csv file using stargazer, including random effects variance and full model summary
 
 library(stargazer)
-summary_table <- stargazer(fit5, type = "text", title = "Model Summary", out = here::here("plots/model_summary.html"))
+summary_table <- stargazer(fit6, type = "text", title = "Model Summary", out = here::here("plots/model_summary.html"))
 
 summary_table <- broom.mixed::tidy(fit5)
 summary_table <- summary_table %>%
@@ -490,7 +508,7 @@ write.csv(summary_table, "summary_table.csv", row.names = FALSE)
 intervals <- intervals(fit5)
 # Model chosen
 
-fit <- fit5
+fit <- fit6
 
 # Predictions from model:
 data1_model <- data1[complete.cases(data1[, c("ES_pcap", "GDP_PPP_pcap", "Gini")]), ]
@@ -614,23 +632,23 @@ ggplot() +
 ### theme for plotting
 create_theme <- function(rel.size = 1) {
   theme(
-    axis.title.y = element_text(size = 18 * rel.size, family = "ShellMedium"),
-    axis.title.x = element_text(size = 18 * rel.size, family = "ShellMedium"),
-    axis.text.y = element_text(size = 16 * rel.size, family = "ShellMedium"),
-    axis.text.x = element_text(size = 16 * rel.size, family = "ShellMedium", angle = 45, hjust = 1),
+    axis.title.y = element_text(size = 15 * rel.size, family = "ShellMedium"),
+    axis.title.x = element_text(size = 15 * rel.size, family = "ShellMedium"),
+    axis.text.y = element_text(size = 13 * rel.size, family = "ShellMedium"),
+    axis.text.x = element_text(size = 13 * rel.size, family = "ShellMedium", angle = 45, hjust = 1),
     plot.margin = margin(l = 5, r = 5, t = 5, b = 5),
-    legend.title = element_text(family = "ShellMedium", size = 16 * rel.size),
+    legend.title = element_text(family = "ShellMedium", size = 14 * rel.size),
     legend.position = "top",
-    legend.text = element_text(size = 15 * rel.size, family = "ShellMedium"),
+    legend.text = element_text(size = 13 * rel.size, family = "ShellMedium"),
     legend.background = element_rect(fill = "white", color = "black"),
     plot.background = element_rect(fill = "white"),
     panel.background = element_rect(fill = "white"),
     panel.grid.major = element_line(color = "gray", linetype = "dashed"),
     panel.grid.minor = element_blank(),
-    plot.title = element_text(size = 18 * rel.size, family = "ShellMedium", hjust = 0.5),
+    plot.title = element_text(size = 16 * rel.size, family = "ShellMedium", hjust = 0.5),
     plot.caption = element_blank(),
     plot.subtitle = element_blank(),
-    strip.text = element_text(size = 16 * rel.size, family = "ShellMedium"),
+    strip.text = element_text(size = 14 * rel.size, family = "ShellMedium"),
     strip.background = element_rect(fill = "lightgray", color = "black"),
     panel.border = element_blank()
     
@@ -650,7 +668,7 @@ p1 <- ggplot() +
   # Display country_name label next to line
   #geom_text(data = future_data %>% filter(year == max(year)-5), aes(x = year, y = predicted_ES_pcap, label = country_name), hjust = -0.1, size = 2) +
   scale_linetype_manual(values = c("Historical" = "solid", "Predicted" = "dashed")) +
-  labs(title = "Predicted Energy Service per Capita using Gompertz Model",
+  labs(title = "Predicted Energy Service per Capita - Gompertz Model",
        x = "GDP per Capita",
        y = "Energy Service per Capita",
        linetype = "Data Type") +
@@ -658,13 +676,36 @@ p1 <- ggplot() +
   theme(legend.position = "none")
 
 # Save to interactive html widget
-ggplotly(p1) %>%
-  layout(title = "Predicted Energy Service per Capita using Gompertz Model",
-         xaxis = list(title = "GDP per Capita"),
-         yaxis = list(title = "Energy Service per Capita")) %>%
-  htmlwidgets::saveWidget(here::here("plots/predicted_ES_pcap_Gompertz_mixed model_by Year.html"), selfcontained = TRUE)
+# ggplotly(p1) %>%
+#   layout(title = "Predicted Energy Service per Capita using Gompertz Model",
+#          xaxis = list(title = "GDP per Capita"),
+#          yaxis = list(title = "Energy Service per Capita")) %>%
+#   htmlwidgets::saveWidget(here::here("plots/predicted_ES_pcap_Gompertz_mixed model.html"), selfcontained = TRUE)
+# 
+# ggsave(here::here("plots/predicted_ES_pcap_Gompertz_mixed_model.png"), plot = p1, width = 16, height = 12)
 
-ggsave(here::here("plots/predicted_ES_pcap_Gompertz_mixed_model_by_Year.png"), plot = p1, width = 16, height = 12)
+
+library(ggplot2)
+library(plotly)
+library(htmlwidgets)
+library(here)
+
+
+# Convert ggplot to plotly
+p1_plotly <- ggplotly(p1)
+
+
+# Apply layout
+p1_plotly <- plotly::layout(p1_plotly,
+                            title = "Predicted Energy Service per Capita using Gompertz Model",
+                            xaxis = list(title = "GDP per Capita"),
+                            yaxis = list(title = "Energy Service per Capita"))
+
+# Save as HTML
+htmlwidgets::saveWidget(p1_plotly,
+                        file = here::here("plots/predicted_ES_pcap_Gompertz_mixed_model_v2.html"),
+                        selfcontained = TRUE)
+
 
 
 # Making adjustments
