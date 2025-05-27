@@ -177,9 +177,10 @@ print(table_names)
 ### Get data
 
 #---LOAD DATA---------------------------
-run_id <- 1         # Isolate run interested in
+run_id <- 197         # Isolate run interested in - check run's table
 max_year <- 2100 #2024  # Get historic data only
 max_sector_id <- toString(c(14))  # Focus on PT - Road
+run_id <- paste0(run_id)  # Convert run_id to string for SQL query
 # String so that SQL can understand it
 
 # Country name data
@@ -194,7 +195,7 @@ enerserv.query <- paste0(
   "SELECT [run_id], [sector_id], [carrier_id], [country_id], [year], [energy_service]",
   " FROM [WEMv3_1].[energy_service]",
   " WHERE [year] <= ", max_year,
-  " AND [run_id] = (SELECT MAX([run_id]) FROM [WEMv3_1].[energy_service])",
+  " AND [run_id] = ", run_id, #(SELECT MAX([run_id]) FROM [WEMv3_1].[energy_service])",
   " AND [sector_id] IN (", max_sector_id, ")"
 )
 enerserv.data <- queryDB(enerserv.query) 
@@ -211,7 +212,7 @@ tfc.enerdem.query <- paste0(
   "SELECT [run_id], [data_type], [sector_id], [carrier_id], [country_id], [year], [demand]",
   " FROM [WEMv3_1].[energy_demand]",
   " WHERE [year] <= ", max_year,
-  " AND [run_id] = (SELECT MAX([run_id]) FROM [WEMv3_1].[energy_service])", # Ensure consistency of run_id selected
+  " AND [run_id] = ", run_id, #(SELECT MAX([run_id]) FROM [WEMv3_1].[energy_service])", # Ensure consistency of run_id selected
   " AND [data_type] = 'TFC1'"#,
   #" AND [sector_id] IN (", max_sector_id, ")"
 )
@@ -226,7 +227,7 @@ gdp.pop.query <- paste0(
   "SELECT [run_id], [category], [data_type], [country_id], [year], [value]",
   " FROM [WEMv3_1].[other_data]",
   " WHERE [year] <= ", max_year,
-  " AND [run_id] = (SELECT MAX([run_id]) FROM [WEMv3_1].[energy_service])",
+  " AND [run_id] = ", run_id, #(SELECT MAX([run_id]) FROM [WEMv3_1].[energy_service])",
   " AND ([data_type] = 'GDP_PPP' OR [data_type] = 'Population')"#,
   #" AND [run_id] = ", run_id
 )
