@@ -1094,6 +1094,20 @@ p1 <- ggplotly(ggplot(all.data.gompertz.reg1, aes(x=GDP_PPP_pcap, y = gini_fille
 #Save to interactive html
 htmlwidgets::saveWidget(p1, here::here("plots", "gini_vs_gdp.html"), selfcontained = TRUE)
 
+#### Data to Thomas
+
+# thomas_data <- all.data.gompertz.reg1 %>%
+#   mutate(WDI_Gini = case_when(gini_missing == 1 ~ NA_real_,
+#                               TRUE ~ SI.POV.GINI),
+#          WDI_Urbanization = case_when(urbanization_missing == 1 ~ NA_real_,
+#                                       TRUE ~ SP.URB.TOTL.IN.ZS),
+#          Impute_Forecast_Gini = gini_filled,
+#          Impute_Forecast_Urbanization = urb_filled) %>%
+#   select(country_id, country_name, wem_regions, year, Population, WDI_Gini, 
+#          Impute_Forecast_Gini, WDI_Urbanization, Impute_Forecast_Urbanization, ES_pcap, GDP_PPP_pcap, Sigmoid_GDP) 
+# #save to csv file
+# write_csv(thomas_data, here::here("data", "thomas_data.csv"))
+
 
 all.data.gompertz.reg1 <- all.data.gompertz.reg1 %>%
   mutate(SI.POV.GINI = gini_filled,
@@ -1157,3 +1171,23 @@ saveRDS(all.data.gompertz, here::here("data", "all_data_wem_espcap_imputation.rd
 write_csv(all.data.gompertz, here::here("data", "all_data_wem_espacp_imputation.csv"))
 
 #########################################################################################################################################
+
+p1 <- ggplot(all.data.gompertz, aes(x = year, y = density_psqkm, colour = country_id)) +
+  geom_line(aes(group = country_name), linetype = "dashed") +
+  #geom_line(aes(y = SI.POV.GINI, group = country_name), linetype = "solid")  +
+  theme_bw() + create_theme1(2) +
+  # geom_text(data = subset(plot_data, !duplicated(country_name, fromLast = TRUE)),
+  #           aes(label = country_name), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02),
+  #           size = rel(8)) +
+  theme(legend.position = "none") +
+  labs(title = "Income Inequality Over Time", 
+       x = "Year", y = "Income inequality (Gini)") +
+  scale_x_continuous(breaks = seq(1960, 2024, by = 4), trans = "log2") +
+  scale_color_identity() #+
+# Add Gompertz line and add label saying Gompertz Model fit
+#geom_line(data = fitted_values, aes(x = log_GDP_pcap, y = ES_pcap), color = "black", linetype = "solid", linewidth = 2) #+
+#annotate("text", x = max(fitted_values$log_GDP_pcap) - 0.5, y = max(fitted_values$ES_pcap) - 0.5, 
+#         label = "Gompertz Model Fit", color = "black", size = 10, hjust = 1, vjust = 1) 
+ggplotly(p1)
+
+View(all.data.gompertz)
