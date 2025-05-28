@@ -301,7 +301,65 @@ dbDisconnect(conn)
 # 
 #   return(df)
 # })
-# 
+
+#### Obtaining WEM urbanization data and LR prices
+
+excel_file1 <- here::here("data", "Shell WEM - B Historic Data v3.4.1.xlsx")
+excel_file2 <- here::here("data", "Shell WEM - C Scenario Inputs v3.4.1.xlsx")
+# Create a vector of named regions
+named_regions1 <- c("B_Historic_urbanisation_by_year")
+named_regions2 <- c("C_Projections_urbanisation_Set_1")
+
+# Read each named region into a list of data frames
+urban_mappings_list <- lapply(named_regions1, function(region) {
+  # Read data without column names
+  df <- read.xlsx(excel_file1, namedRegion = region, skipEmptyRows = FALSE, colNames = FALSE) * 100 # To percentages
+  
+  # Set column names to the year
+  colnames(df) <- 1960:2030
+  
+  # Add a column for country_id
+  df <- df %>%
+    mutate(country_id = row_number()) %>%
+    select(country_id, everything())
+  # Pivot keeping country_id as column make make year columns rows and call the value Urban_perc
+  df <- df %>%
+    pivot_longer(-country_id, names_to = "year", values_to = "wem_urbanization_perc") %>%
+    mutate(year = as.numeric(year)) %>%
+    arrange(country_id, year) %>%
+    as_tibble()
+  
+  return(df)
+})
+
+urban_mappings_future_list <- lapply(named_regions2, function(region) {
+  # Read data without column names
+  df <- read.xlsx(excel_file2, namedRegion = region, skipEmptyRows = FALSE, colNames = FALSE) * 100 # To percentages
+  
+  # Set column names to the year
+  colnames(df) <- 2007:2100
+  # Add a column for country_id
+  df <- df %>%
+    mutate(country_id = row_number()) %>%
+    select(country_id, everything())
+  # Pivot keeping country_id as column make make year columns rows and call the value Urban_perc
+  df <- df %>%
+    pivot_longer(-country_id, names_to = "year", values_to = "wem_urbanization_perc") %>%
+    mutate(year = as.numeric(year)) %>%
+    arrange(country_id, year) %>%
+    as_tibble() %>%
+    filter(year > 2030)
+  return(df)
+})
+
+# Stack two lists
+urban_mappings_list_all <- bind_rows(urban_mappings_list, urban_mappings_future_list) %>%
+  # Remove duplicates
+  distinct() %>%
+  arrange(country_id, year) %>%
+  as_tibble()
+
+ 
 # # Combine all data frames into one by columns
 # all.country.mappings <- as_tibble(bind_cols(country_mappings_list) %>%
 #   mutate(iso3c = toupper(A_ISO_3_letter_code_Mapped)) %>%
@@ -1114,34 +1172,113 @@ all.data.gompertz.reg1 <- all.data.gompertz.reg1 %>%
          SP.URB.TOTL.IN.ZS = urb_filled)
 
 last_historical_year <- 2023
+# all.data.gompertz <- all.data.gompertz.reg1 %>%
+#   # Make all columns except country_id, country_name, iso3c, year numeric
+#   mutate(across(c(SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, energy_service, ES_pcap, GDP_PPP_pcap, prop_TFC_PTR), as.numeric)) %>%
+#   # Set values of ES_pcap, energy_service and prop_TFC_PTR to NA for years after 2024
+#   mutate(ES_pcap = ifelse(year > last_historical_year, NA, ES_pcap),
+#          energy_service = ifelse(year > last_historical_year, NA, energy_service),
+#          prop_TFC_PTR = ifelse(year > last_historical_year, NA, prop_TFC_PTR)) %>%
+#   mutate(lag_GDP_PPP_pcap = lag(GDP_PPP_pcap),
+#          lag_ES_pcap = lag(ES_pcap),
+#          lag_energy_service = lag(energy_service),
+#          lag_Gini = lag(SI.POV.GINI),
+#          lag_density = lag(EN.POP.DNST),
+#          lag_urbanization = lag(SP.URB.TOTL.IN.ZS)) %>%
+#   rename(
+#     #ES = energy_service,
+#     #ES_pcap = ES_pcap,
+#     #GDP_PPP = GDP_PPP_pcap,
+#     Gini = SI.POV.GINI,
+#     density_psqkm = EN.POP.DNST,
+#     urbanization_perc = SP.URB.TOTL.IN.ZS
+#   ) %>%
+#   ungroup() %>%
+#   filter(GDP_PPP != 0) %>%
+#   arrange(country_id, year) %>%
+#   mutate(historical_data = ifelse(year <= 2024, 1, 0)) %>%
+#   select(country_id, country_name, iso3c, wem_regions, Population, year,
+#          Gini, density_psqkm, urbanization_perc, ES_pcap, energy_service, GDP_PPP_pcap,
+#          GDP_PPP, prop_TFC_PTR, Land_Area = A_Land_Area, historical_data)
+# 
+# # Get the density and urbanization of the USA
+# all.data.gompertz.usa <- all.data.gompertz %>%
+#   ungroup() %>%
+#   filter(country_id == 1) %>%
+#   select(USA_dens = density_psqkm, USA_urban = urbanization_perc, year)
+# 
+# # Join with all.data.gompertz on year
+# all.data.gompertz.test <- all.data.gompertz %>%
+#   left_join(all.data.gompertz.usa, by = "year") %>%
+#   mutate(d_bar = case_when(density_psqkm > USA_dens ~ density_psqkm - USA_dens,
+#                            TRUE ~ 0),
+#          u_bar = case_when(urbanization_perc > USA_urban ~ urbanization_perc - USA_urban,
+#                            TRUE ~ 0)) %>%
+#   group_by(country_id) %>%
+#   arrange(country_id, year) %>%
+#   mutate(rising_income = case_when(GDP_PPP_pcap > lag(GDP_PPP_pcap, default = first(GDP_PPP_pcap)) ~ 1,
+#                                    TRUE ~ 0),
+#          falling_income = case_when(GDP_PPP_pcap < lag(GDP_PPP_pcap, default = first(GDP_PPP_pcap)) ~ 1,
+#                                    TRUE ~ 0))        
+
+
+
+# Clean and transform the main dataset
 all.data.gompertz <- all.data.gompertz.reg1 %>%
-  # Make all columns except country_id, country_name, iso3c, year numeric
-  mutate(across(c(SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, energy_service, ES_pcap, GDP_PPP_pcap, prop_TFC_PTR), as.numeric)) %>%
-  # Set values of ES_pcap, energy_service and prop_TFC_PTR to NA for years after 2024
-  mutate(ES_pcap = ifelse(year > last_historical_year, NA, ES_pcap),
-         energy_service = ifelse(year > last_historical_year, NA, energy_service),
-         prop_TFC_PTR = ifelse(year > last_historical_year, NA, prop_TFC_PTR)) %>%
-  mutate(lag_GDP_PPP_pcap = lag(GDP_PPP_pcap),
-         lag_ES_pcap = lag(ES_pcap),
-         lag_energy_service = lag(energy_service),
-         lag_Gini = lag(SI.POV.GINI),
-         lag_density = lag(EN.POP.DNST),
-         lag_urbanization = lag(SP.URB.TOTL.IN.ZS)) %>%
+  mutate(across(
+    c(SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, energy_service, ES_pcap, GDP_PPP_pcap, prop_TFC_PTR),
+    as.numeric
+  )) %>%
+  mutate(ES_pcap_WEM_run = ES_pcap) %>%
+  mutate(across(
+    c(ES_pcap, energy_service, prop_TFC_PTR),
+    ~ if_else(year > last_historical_year, NA_real_, .)
+  )) %>%
+  group_by(country_id) %>%
+  arrange(country_id, year) %>%
+  mutate(
+    lag_GDP_PPP_pcap = lag(GDP_PPP_pcap),
+    lag_ES_pcap = lag(ES_pcap),
+    lag_energy_service = lag(energy_service),
+    lag_Gini = lag(SI.POV.GINI),
+    lag_density = lag(EN.POP.DNST),
+    lag_urbanization = lag(SP.URB.TOTL.IN.ZS)
+  ) %>%
   rename(
-    #ES = energy_service,
-    #ES_pcap = ES_pcap,
-    #GDP_PPP = GDP_PPP_pcap,
     Gini = SI.POV.GINI,
     density_psqkm = EN.POP.DNST,
     urbanization_perc = SP.URB.TOTL.IN.ZS
   ) %>%
-  ungroup() %>%
   filter(GDP_PPP != 0) %>%
+  ungroup() %>%
   arrange(country_id, year) %>%
-  mutate(historical_data = ifelse(year <= 2024, 1, 0)) %>%
-  select(country_id, country_name, iso3c, wem_regions, Population, year,
-         Gini, density_psqkm, urbanization_perc, ES_pcap, energy_service, GDP_PPP_pcap,
-         GDP_PPP, prop_TFC_PTR, Land_Area = A_Land_Area, historical_data)
+  mutate(historical_data = if_else(year <= 2024, 1, 0)) %>%
+  select(
+    country_id, country_name, iso3c, wem_regions, Population, year,
+    Gini, density_psqkm, urbanization_perc, ES_pcap, energy_service,
+    GDP_PPP_pcap, GDP_PPP, prop_TFC_PTR, Land_Area = A_Land_Area, historical_data
+  )
+
+# Extract USA reference values
+all.data.gompertz.usa <- all.data.gompertz %>%
+  filter(country_id == 1) %>%
+  select(year, USA_dens = density_psqkm, USA_urban = urbanization_perc)
+
+# Join and compute derived variables
+all.data.gompertz <- all.data.gompertz %>%
+  left_join(all.data.gompertz.usa, by = "year") %>%
+  mutate(
+    d_bar = pmax(density_psqkm - USA_dens, 0),
+    u_bar = pmax(urbanization_perc - USA_urban, 0)
+  ) %>%
+  group_by(country_id) %>%
+  arrange(country_id, year) %>%
+  mutate(
+    rising_income = if_else(GDP_PPP_pcap > lag(GDP_PPP_pcap, default = first(GDP_PPP_pcap)), 1, 0),
+    falling_income = if_else(GDP_PPP_pcap < lag(GDP_PPP_pcap, default = first(GDP_PPP_pcap)), 1, 0)
+  ) %>%
+  select(-USA_dens, -USA_urban)
+
 
 # additional_imputation <- all.data.gompertz %>%
 #   ungroup() %>%
