@@ -48,7 +48,19 @@ showtext_auto()
 ####################################################################################
 
 
-data <- readRDS("data/all_data_wem_espcap_imputation_wem_urban.rds")
+data <- readRDS("data/all_data_wem_espcap_imputation_wem_urban.rds") %>%
+  group_by(country_id) %>%
+  arrange(country_id, year) %>%
+  mutate(lag_ES_pcap = lag(ES_pcap, order_by = year),
+         Gini_01 = Gini / 100,
+         GDP_PPP_pcap_thousands = GDP_PPP_pcap / 1000) %>%
+  ungroup()
+# 
+# shell.brand.palette <- readxl::read_excel(here::here("Data", "Shell Scenarios v14.6 2023_06_23.xlsm"), sheet = "Settings",
+#                                           range = "L10:M270", col_names = TRUE) %>%
+#   dplyr::select(-Colour)
+# 
+# saveRDS(shell.brand.palette, file = here::here("data", "shell_brand_palette_extended.rds"))
 
 shell.brand.palette <- readRDS(here::here("data", "shell_brand_palette_extended.rds"))
 
@@ -60,29 +72,6 @@ data <- shell.brand.palette %>%
 
 
 #####
-
-# Define the S-curve function with additional variables
-Scurve <- function(x, Asym, xmid, scal) {
-  result <- Asym / (1 + exp(-scal * (x - xmid)))
-  return(result)
-}
-
-Scurve2 <- function(x, gini_index, Asym, xmid, scal, c, b) {
-  result <- (c + b * gini_index) / (1 + exp(-scal * (x - xmid)))
-  return(result)
-}
-
-# gompertz <- function(t, a, b, c, d, e, pop_density, gini_index) {
-#   a * exp(-b * exp(-c * t)) + d * pop_density + e * gini_index
-# }
-
-gompertz <- function(t, a, b, c, pop_density, gini_index) {
-  a * exp(-b * exp(-c * t * pop_density)) ^ gini_index
-}
-
-
-# Filter data for country_id <= 15 and befpre 2024 as historical data
-
 # Filter out countries with less than 2 data points for Gini, urbanization_perc and density_psqkm
 set.seed(1234)
 data <- data %>%
@@ -96,250 +85,12 @@ data <- data %>%
   # Add random noise since nls doesn't hanndle zero-residual data well.
   mutate(Gini_noise = Gini + rnorm(1, mean = 0, sd = 0.01))
 
-### Interpolate missing values
-# 
-# data <- data %>%
-#   group_by(country_name) %>%
-#   mutate(
-#     # Impute Gini, clamped between 0 and 100
-#     Gini = ifelse(
-#       is.na(Gini) & (year >= 2000 & year < 2024),
-#       pmin(100, pmax(0, predict(lm(Gini ~ poly(year, 1)), newdata = data.frame(year = year)))),
-#       Gini
-#     ),
-#     
-#     # Impute density_psqkm (no clamping unless you want to restrict it)
-#     density_psqkm = ifelse(
-#       is.na(density_psqkm) & (year >= 2000 & year < 2024),
-#       predict(lm(density_psqkm ~ poly(year, 1)), newdata = data.frame(year = year)),
-#       density_psqkm
-#     ),
-#     
-#     # Impute urbanization_perc, clamped between 0 and 100
-#     urbanization_perc = ifelse(
-#       is.na(urbanization_perc) & (year >= 2000 & year < 2024),
-#       pmin(100, pmax(0, predict(lm(urbanization_perc ~ poly(year, 1)), newdata = data.frame(year = year)))),
-#       urbanization_perc
-#     )
-#   ) %>%
-#   ungroup()
-
-
-# Group by country_name, find last year with missing for each of Gini, urbanization_perc and density_psqkm
-# and then project forward into time by decreasing Gini for 0.01% per year, urbanization_perc by 0.1% and density_psqkm by 0.5%
-# but ensuring that Gini and urbanization_perc stay in range [0,100] and density_psqkm is positive
-# data <- data %>%
-#   group_by(country_name) %>%
-#   mutate(
-#     Gini = ifelse(
-#       is.na(Gini) & !all(is.na(Gini)) & year > max(year[!is.na(Gini)]),
-#       pmax(0, pmin(100, last(Gini[!is.na(Gini)]) - 0.01 * (year - max(year[!is.na(Gini)])))),
-#       Gini
-#     ),
-#     urbanization_perc = ifelse(
-#       is.na(urbanization_perc) & !all(is.na(urbanization_perc)) & year > max(year[!is.na(urbanization_perc)]),
-#       pmax(0, pmin(100, last(urbanization_perc[!is.na(urbanization_perc)]) + 0.1 * (year - max(year[!is.na(urbanization_perc)])))),
-#       urbanization_perc
-#     ),
-#     density_psqkm = ifelse(
-#       is.na(density_psqkm) & !all(is.na(density_psqkm)) & year > max(year[!is.na(density_psqkm)]),
-#       pmax(0, last(density_psqkm[!is.na(density_psqkm)]) + 0.5 * (year - max(year[!is.na(density_psqkm)]))),
-#       density_psqkm
-#     )
-#   ) %>%
-#   ungroup()
-
-
 
 # Historical data
 data1 <- data %>%
   filter(year <= 2024)
 
-# Impute missing values with the mean of the respective columns by country
-# data <- data %>%
-#   group_by(country_name) %>%
-#   mutate(
-#     pop_density = ifelse(is.na(density_psqkm), mean(density_psqkm, na.rm = TRUE), density_psqkm),
-#     gini_index = ifelse(is.na(Gini), mean(Gini, na.rm = TRUE), Gini)
-#   ) %>%
-#   ungroup()
-
-#View(data1 %>% filter(country_name == "Qatar"))
-
-# Use linear model by country_id to predict missing values for Gini, density_psqkm and urbanization_perc
-
-
-############## Data wrangling
-### Generating forecasts for key independent variables
-
-# forecast_variable <- function(df, country_col, year_col, value_col, forecast_to = 2100, clamp_0_100 = FALSE) {
-#   df <- df %>%
-#     rename(country = {{country_col}}, year = {{year_col}}, value = {{value_col}}) %>%
-#     filter(!is.na(value)) %>%
-#     mutate(ds = as.Date(paste0(year, "-01-01")), y = value) %>%
-#     select(country, ds, y)
-#   
-#   # Nest by country
-#   nested <- df %>%
-#     group_by(country) %>%
-#     nest()
-#   
-#   # Apply Prophet per country
-#   nested <- nested %>%
-#     mutate(
-#       model = map(data, ~ prophet(.x)),
-#       future = map2(model, data, ~ make_future_dataframe(.x, periods = forecast_to - max(as.numeric(format(.y$ds, "%Y"))), freq = "year")),
-#       forecast = map2(model, future, predict)
-#     )
-#   
-#   # Extract and clean forecasts
-#   forecasts <- nested %>%
-#     select(country, forecast) %>%
-#     unnest(forecast) %>%
-#     mutate(
-#       year = as.numeric(format(ds, "%Y")),
-#       yhat = if (clamp_0_100) pmin(100, pmax(0, yhat)) else yhat
-#     ) %>%
-#     select(country, year, yhat)
-#   
-#   return(forecasts)
-# }
-# 
-# # Forecast Gini, density_psqkm and urbanization_perc
-# gini_forecast <- forecast_variable(data1, country_name, year, Gini, forecast_to = 2100, clamp_0_100 = TRUE)
-# 
-# ggplot(gini_forecast, aes(x = year, y = yhat, color = country)) +
-#   geom_line() +
-#   labs(title = "Forecasted Gini Index by Country",
-#        x = "Year",
-#        y = "Gini Index") +
-#   theme_minimal()
-
-# #################
-# forecast_variable <- function(df, country_col, year_col, value_col, forecast_to = 2100, 
-#                               clamp_0_100 = FALSE, type = c("sigmoid", "exp"), decreasing = FALSE) {
-#   type <- match.arg(type)
-#   
-#   df <- df %>%
-#     rename(country = {{country_col}}, year = {{year_col}}, value = {{value_col}}) %>%
-#     filter(!is.na(value))
-#   
-#   if (nrow(df) < 3) return(NULL)  # Not enough data to fit a model
-#   
-#   last_year <- max(df$year, na.rm = TRUE)
-#   future_years <- (last_year + 1):forecast_to
-#   if (length(future_years) == 0) return(NULL)  # No future years to forecast
-#   
-#   # Fit model
-#   model <- tryCatch({
-#     if (type == "sigmoid") {
-#       fit_sigmoid(df, value_col = "value", year_col = "year", decreasing = decreasing)
-#     } else {
-#       fit_exponential(df, value_col = "value", year_col = "year")
-#     }
-#   }, error = function(e) return(NULL))
-#   
-#   if (is.null(model)) return(NULL)
-#   
-#   # Predict
-#   preds <- tryCatch({
-#     forecast_from_model(model, future_years, type = type, clamp = clamp_0_100)
-#   }, error = function(e) return(NULL))
-#   
-#   tibble(
-#     country = unique(df$country),
-#     year = future_years,
-#     !!value_col := preds
-#   )
-# }
-# 
-# # Forecast Gini, density_psqkm and urbanization_perc
-# 
-# # Wrapper to forecast all three variables for one country
-# forecast_all_variables <- function(df_country, forecast_to = 2100) {
-#   country <- unique(df_country$country_name)
-#   
-#   safe_forecast <- function(var, type, clamp = FALSE, decreasing = FALSE) {
-#     if (!var %in% names(df_country)) return(NULL)
-#     var_sym <- rlang::sym(var)
-#     forecast_variable(df_country, country_name, year, var_sym, 
-#                       type = type, clamp_0_100 = clamp, decreasing = decreasing)
-#   }
-#   
-#   gini <- safe_forecast("Gini", type = "sigmoid", clamp = TRUE, decreasing = TRUE)
-#   urban <- safe_forecast("urbanization_perc", type = "sigmoid", clamp = TRUE, decreasing = FALSE)
-#   density <- safe_forecast("density_psqkm", type = "exp", clamp = FALSE)
-#   
-#   forecasts <- list(gini, urban, density) %>%
-#     discard(is.null)
-#   
-#   if (length(forecasts) == 0) return(NULL)
-#   
-#   reduce(forecasts, full_join, by = c("country", "year")) %>%
-#     rename(country_name = country)
-# }
-# 
-# 
-# 
-# 
-# # Split data by country
-# country_data_list <- data1 %>%
-#   group_by(country_name) %>%
-#   group_split()
-# 
-# # Apply forecasting to each country
-# all_forecasts <- map_dfr(country_data_list, forecast_all_variables)
-# 
-# # Combine original and forecasted data
-# data_combined <- data1 %>%
-#   full_join(all_forecasts, by = c("country_name", "year")) %>%
-#   mutate(
-#     Gini = coalesce(Gini.x, Gini.y),
-#     urbanization_perc = coalesce(urbanization_perc.x, urbanization_perc.y),
-#     density_psqkm = coalesce(density_psqkm.x, density_psqkm.y)
-#   ) %>%
-#   select(-ends_with(".x"), -ends_with(".y")) %>%
-#   arrange(country_name, year)
-# 
-# ggplot(data_combined, aes(x = year)) +
-#   geom_line(aes(y = Gini, color = country_name)) +
-#   geom_line(aes(y = Gini.y, color = "Forecasted Gini"), linetype = "dashed") +
-#   labs(title = "Gini Index by Country and Year",
-#        x = "Year",
-#        y = "Gini Index") +
-#   theme_minimal()
-
-
-##########################################################################
-
-
 ##########################################################################################
-
-# Plot the values for Gini, density_psqkm and urbanization_perc by country and year (facet plot with 3 facets)
-ggplot(data, aes(x = year)) +
-  geom_line(aes(y = Gini, color = country_name)) +
-#  facet_wrap(~ country_name, scales = "free_y") +
-  labs(title = "Gini Index by Country and Year",
-       x = "Year",
-       y = "Gini Index") +
-  theme_minimal()
-
-ggplot(data, aes(x = year)) +
-  geom_line(aes(y = density_psqkm, color = country_name)) +
-#  facet_wrap(~ country_name, scales = "free_y") +
-  labs(title = "Population Density by Country and Year",
-       x = "Year",
-       y = "Population Density (people per sq km)") +
-  theme_minimal()
-
-ggplot(data, aes(x = year)) +
-  geom_line(aes(y = urbanization_perc, color = country_name)) +
-#  facet_wrap(~ country_name, scales = "free_y") +
-  labs(title = "Urbanization Percentage by Country and Year",
-       x = "Year",
-       y = "Urbanization Percentage") +
-  theme_minimal()
-
 
 data1 <- data1 %>%
   group_by(country_name) %>%
@@ -351,49 +102,6 @@ data1 <- data1 %>%
 # Note: nlsLM is from the minpack.lm package
 # Note: The model fitting process may take a while depending on the size of the dataset
 # Note: The model fitting process may take a while depending on the size of the dataset
-
-Scurve2 <- function(x, gini_index, Asym, xmid, scal, c, b) {
-  result <- (c + b * gini_index) / (1 + exp(-scal * (x - xmid)))
-  return(result)
-}
-
-# Plot GDP_PPP_pcap vs ES_pcap (y-axis) for each country_name
-ggplot(data1, aes(x = GDP_PPP_pcap, y = ES_pcap, color = country_name)) +
-  geom_point() +
-  # facet by country
-  #facet_wrap(~ country_name, scales = "free") +
-  geom_line() +
-  #geom_smooth(method = "lm", se = FALSE) +
-  labs(title = "GDP per Capita vs Energy Service per Capita",
-       x = "GDP per Capita",
-       y = "Energy Service per Capita") +
-  # Hide legend
-  theme_minimal() +
-  theme(legend.position = "none") 
-
-ggplot(data1, aes(x = year, y = ES_pcap, color = country_name)) +
-  geom_point() +
-  # facet by country
-  #facet_wrap(~ country_name, scales = "free") +
-  geom_line() +
-  #geom_smooth(method = "lm", se = FALSE) +
-  labs(title = "Year vs Energy Service per Capita",
-       x = "Year",
-       y = "Energy Service per Capita") +
-  theme_minimal() +
-  theme(legend.position = "none") 
-
-ggplot(data1, aes(x = year, y = GDP_PPP_pcap, color = country_name)) +
-  geom_point() +
-  # facet by country
-  #facet_wrap(~ country_name, scales = "free") +
-  geom_line() +
-  #geom_smooth(method = "lm", se = FALSE) +
-  labs(title = "Year vs GDP per Capita",
-       x = "Year",
-       y = "GDP per Capita") +
-  theme_minimal() +
-  theme(legend.position = "none") 
 ############################################################################################################################
 ### Plots
 
@@ -422,254 +130,208 @@ create_theme1 <- function(rel.size = 1) {
   )
 }
 
-p1 <- ggplot(data1, aes(y = ES_pcap, x = GDP_PPP_pcap, colour = Hex)) +
-  geom_point(aes(group = country_id)) +
-  geom_line(aes(group = country_id)) +
-  theme_bw() + create_theme1(2) +
-  geom_text(data = subset(data1, !duplicated(country_name, fromLast = TRUE)),
-            aes(label = country_name), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02),
-            size = rel(8)) +
-  theme(legend.position = "none") +
-  labs(title = "Aggregate Energy Service Ladder: Passenger Transport Road Energy Service vs GDP / capita", 
-       x = "GDP PPP / capita (US$ 2018)", y = "Energy Service  (vehicle km/ capita/ year)") +
-  scale_color_identity() #+
-  # Add Gompertz line and add label saying Gompertz Model fit
-  #geom_line(data = fitted_values, aes(x = log_GDP_pcap, y = ES_pcap), color = "black", linetype = "solid", linewidth = 2) #+
-#annotate("text", x = max(fitted_values$log_GDP_pcap) - 0.5, y = max(fitted_values$ES_pcap) - 0.5, 
-#         label = "Gompertz Model Fit", color = "black", size = 10, hjust = 1, vjust = 1) 
-p1
-# Save p1 to png
-ggsave(filename = here::here("plots", "pt_road_gdp_es.png"), plot = p1, width = 10, height = 6.3, dpi = 250)
-
-p1 <- ggplot(data1, aes(y = Gini, x = GDP_PPP_pcap, colour = Hex)) +
-  geom_point(aes(group = country_id)) +
-  geom_line(aes(group = country_id)) +
-  theme_bw() + create_theme1(2) +
-  geom_text(data = subset(data1, !duplicated(country_name, fromLast = TRUE)),
-            aes(label = country_name), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02),
-            size = rel(8)) +
-  theme(legend.position = "none") +
-  labs(title = "Visualling the Historical Relationship between Gini and GDP / capita", 
-       x = "GDP PPP / capita (US$ 2018)", y = "Income inequality (Gini)") +
-  scale_color_identity() #+
-# Add Gompertz line and add label saying Gompertz Model fit
-#geom_line(data = fitted_values, aes(x = log_GDP_pcap, y = ES_pcap), color = "black", linetype = "solid", linewidth = 2) #+
-#annotate("text", x = max(fitted_values$log_GDP_pcap) - 0.5, y = max(fitted_values$ES_pcap) - 0.5, 
-#         label = "Gompertz Model Fit", color = "black", size = 10, hjust = 1, vjust = 1) 
-p1
-# Save p1 to png
-ggsave(filename = here::here("plots", "gini_gdp.png"), plot = p1, width = 10, height = 6.3, dpi = 250)
-
-
-### https://stats.stackexchange.com/questions/205918/how-to-use-a-sigmoidal-function-in-a-multiple-nonlinear-regression
-
-# Define the non-linear model function
-logistic_model <- deriv(
-  ~ Asym / (1 + exp((xmid - GDP_PPP_pcap) / scal)),
-  namevec = c("Asym", "xmid", "scal"),
-  function.arg = c("GDP_PPP_pcap", "Asym", "xmid", "scal")
-)
-
-multiple_logistic_model <- deriv(
-  ~ (a0 + a1 * density_psqkm) / (1 + exp((xmid - GDP_PPP_pcap) / scal)),
-  namevec = c("a0", "a1", "xmid", "scal"),
-  function.arg = c("GDP_PPP_pcap", "density_psqkm", "a0", "a1", "xmid", "scal")
-)
-
-multiple_logistic_model2 <- deriv(
-  ~ (a0 + a1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap) / scal))) ^ (g0 + g1 * Gini),
-  namevec = c("a0", "a1", "xmid", "scal", "g0","g1"),
-  function.arg = c("GDP_PPP_pcap", "density_psqkm", "a0", "a1", "xmid", "scal", "g0","g1","Gini")
-)
-
-multiple_logistic_model3 <- deriv(
-  ~ (a0 + a1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap) / scal))) ^ (g1 * Gini),
-  namevec = c("a0", "a1", "xmid", "scal", "g1"),
-  function.arg = c("GDP_PPP_pcap", "density_psqkm", "a0", "a1", "xmid", "scal", "g1","Gini")
-)
-
-multiple_logistic_model4 <- deriv(
-  ~ (a0 + a1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap) / scal))) ^ (g0 + g1 * Gini),
-  namevec = c("a0", "a1", "xmid", "scal", "g0", "g1"),
-  function.arg = c("GDP_PPP_pcap", "density_psqkm", "a0", "a1", "xmid", "scal", "g0", "g1", "Gini")
-)
-
-multiple_logistic_model5 <- deriv(
-  ~ Asym * (1 / (1 + exp((xmid - GDP_PPP_pcap) / scal))) * exp(g0 * exp (g1 * Gini)),
-  namevec = c("Asym", "xmid", "scal", "g0", "g1"),
-  function.arg = c("GDP_PPP_pcap", "Asym","xmid", "scal", "g0", "g1", "Gini")
-)
-
-#############################################################################################################
-#### Logistic function and iterations
-#### In specifying random effects, let ones you suspect to be most stable estimated first
-#############################################################################################################
-# Additive effect of Gini -f believe a direct contributor to ES_pcap
-
-multiple_logistic_model_6 <- deriv(
-  ~ (a0 + a1 * density_psqkm + a2 * Gini) / (1 + exp((xmid - GDP_PPP_pcap) / scal)),
-  namevec = c("a0", "a1", "a2", "xmid", "scal"),
-  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "a0", "a1", "a2", "xmid", "scal")
-)
-
-fit1 <- nlme(
-  ES_pcap ~ multiple_logistic_model_6(GDP_PPP_pcap, density_psqkm, Gini, a0, a1, a2, xmid, scal),
-  data = data1,
-  fixed = a0 + a1 + a2 + xmid + scal ~ 1,
-  #random = xmid + a2 ~ 1 | country_name, # This was done
-  random = xmid + scal  ~ 1 | country_name,
-  #random = xmid + a1 ~ 1 | country_name,
-  #random = xmid ~ 1 | country_name,
-  start = c(a0 = 5000, a1 = 10, a2 = 2, xmid = 10000, scal = 1000),
-  #correlation = corARMA(p = 1, q = 2, form = ~ year | country_name),,  # <-- this models autocorrelation
-  na.action = na.exclude, #na.exclude to retain original number of rows
-  control = nlmeControl(pnlsTol = 0.5, maxIter = 500, minFactor = 1e-10, msMaxIter = 500, warnOnly = TRUE)
-  #control = nlmeControl(pnlsTol = 0.1, maxIter = 100)
-)
-
-summary(fit1)
-
-
-# Multiplicative effect of Gini - if believe inequality amplifies or dampens the effect of income
-# and popilation density on ES_pcap - modulates the overall level of ES_pcap
-# multiple_logistic_model_7 <- deriv(
-#   ~ ((a0 + a1 * density_psqkm) / (1 + exp((xmid - GDP_PPP_pcap) / scal))) * exp(b0 + b1 * Gini),
-#   namevec = c("a0", "a1", "xmid", "scal", "b0", "b1"),
-#   function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "a0", "a1", "xmid", "scal", "b0", "b1")
-# )
-
-multiple_logistic_model_7 <- deriv(
-  ~ ((a0 + a1 * density_psqkm) / (1 + exp((xmid - GDP_PPP_pcap) / scal))) * exp(b1 * Gini),
-  namevec = c("a0", "a1", "xmid", "scal", "b1"),
-  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "a0", "a1", "xmid", "scal", "b1")
-)
-
-fit2a <- nls(
-  ES_pcap ~ multiple_logistic_model_7(GDP_PPP_pcap, density_psqkm, Gini, a0, a1, xmid, scal, b1),
-  data = data1,
-  #fixed = a0 + a1 + xmid + scal + b0 + b1 ~ 1,
-  #random = pdDiag(~ 1 | country_name),
-  #random =  xmid ~ 1 | country_name,
-  start = c(a0 = 5000, a1 = 10, xmid = 10000, scal = 1000, b1 = 0.001),
-  na.action = na.exclude, #na.exclude to retain original number of rows
-  control = nlmeControl(pnlsTol = 0.5, maxIter = 200, minFactor = 1e-10, msMaxIter = 200, warnOnly = TRUE)
-)
-
-summary(fit2a)
-
-fit2 <- nlme(
-  ES_pcap ~ multiple_logistic_model_7(GDP_PPP_pcap, density_psqkm, Gini, a0, a1, xmid, scal, b1),
-  data = data1,
-  fixed = a0 + a1 + xmid + scal + b1 ~ 1,
-  random =  xmid + scal ~ 1 | country_name,
-  #random =  xmid + b1 ~ 1 | country_name,
-  start = c(a0 = 5000, a1 = 10, xmid = 10000, scal = 1000, b1 = 0.001),
-  na.action = na.exclude, #na.exclude to retain original number of rows
-  control = nlmeControl(pnlsTol = 0.5, maxIter = 500, minFactor = 1e-10, msMaxIter = 500, warnOnly = TRUE)
-  )
-
-summary(fit2)
-
-# Checking Variation of Gini within groups:
-aggregate(Gini ~ country_name, data = data1, FUN = function(x) length(unique(x)))
-
-# Check stability of outcomes
-# with(data1, {
-#   y_hat <- ((5000 + 10 * density_psqkm) / (1 + exp((10000 - GDP_PPP_pcap) / 1000))) * exp(1 + 0.001 * Gini)
-#   summary(y_hat)
-# })
-
-# Interaction effect of Gini - modifies the effect of GDP - changes the steepens of the logistic
-# curve based on inequality - changes how GDP affects ES_pcap
-multiple_logistic_model_8 <- deriv(
-  ~ (a0 + a1 * density_psqkm) / (1 + exp((xmid - GDP_PPP_pcap) / (scal + a2 * Gini))),
-  namevec = c("a0", "a1", "a2", "xmid", "scal"),
-  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "a0", "a1", "a2", "xmid", "scal")
-)
-
-fit3 <- nlme(
-  ES_pcap ~ multiple_logistic_model_8(GDP_PPP_pcap, density_psqkm, Gini, a0, a1, a2, xmid, scal),
-  data = data1,
-  fixed = a0 + a1 + a2 + xmid + scal ~ 1,
-  #random = pdDiag(~ 1 | country_name),
-  random =  xmid + a2 ~ 1 | country_name, # This was chosen
-  #random =  xmid ~ 1 | country_name,
-  start = c(a0 = 50000, a1 = -80, a2 = -400, xmid = 50000, scal = 50000),
-  na.action = na.exclude, #na.exclude to retain original number of rows
-  #control = nls.control(maxiter = 5000, minFactor = 1e-10, warnOnly = TRUE)
-  control = nlmeControl(pnlsTol = 0.5, maxIter = 500, minFactor = 1e-10, msMaxIter = 500, warnOnly = TRUE)
-  )
-
-summary(fit3)
-##############################################################################################################
-# Analysis
-##############################################################################################################
-###################################################
-### Correlation check
-
-# Select relevant variables
-vars <- data1[, c("GDP_PPP_pcap", "density_psqkm", "Gini")]
-
-# Compute correlation matrix
-cor_matrix <- cor(vars, use = "complete.obs")
-
-# Print it
-print(cor_matrix)
-
-# Fit a linear model
-lm_model <- lm(GDP_PPP_pcap ~ density_psqkm + Gini, data = data1)
-
-# Compute VIF
-vif(lm_model)
-
-pairs(vars, main = "Scatterplot Matrix")
-
-#### further troubleshooting
-summary(data1)
-any(!is.finite(data1$GDP_PPP_pcap))
-any(!is.finite(data1$Gini_noise))
-any(!is.finite(data1$ES_pcap))
-
-# Plot ES_pcap versus GDP_PPP_pcap
-ggplotly(ggplot(data1, aes(x = GDP_PPP_pcap, y = ES_pcap, color = country_name)) +
-  geom_point() +
+ggplotly(ggplot(data = data1, aes(x = GDP_PPP_pcap, y = ES_pcap, colour = Hex)) +
+  #geom_point() +
+  geom_line() +
+    # show country_name in hover
+  geom_point(aes(shape = country_name), size = 1.5, alpha = 0.7) +
+  #geom_line(aes(linetype = country_name), size = 0.5, alpha = 0.7) +
+  geom_text(data = data1 %>% filter(year == max(year) - 5), aes(label = country_name), hjust = -0.1, size = 2) +
   #geom_smooth(method = "lm", se = FALSE) +
   labs(title = "GDP per Capita vs Energy Service per Capita",
        x = "GDP per Capita",
        y = "Energy Service per Capita") +
-  theme_minimal())
+  theme_minimal() +
+  create_theme1(1) +
+  scale_color_identity() +
+  theme(legend.position = "none"))
 
-### Residual analysis
-# Extract residuals
+############################################################################################################################
+# Drop UAE
 
-# 1. Extract normalized residuals and add country info
-# resid_df <- data.frame(data1,
-#   residuals = resid(fit1, type = "normalized")
+exclude.countries <- c("Luxembourg", "United Arab Emirates")
+
+data1 <- data1 %>%
+  filter(!country_name %in% exclude.countries)
+
+ggplotly(ggplot(data = data1, aes(x = GDP_PPP_pcap, y = ES_pcap, colour = Hex)) +
+           #geom_point() +
+           geom_line() +
+           # show country_name in hover
+           geom_point(aes(shape = country_name), size = 1.5, alpha = 0.7) +
+           #geom_line(aes(linetype = country_name), size = 0.5, alpha = 0.7) +
+           geom_text(data = data1 %>% filter(year == max(year) - 5), aes(label = country_name), hjust = -0.1, size = 2) +
+           #geom_smooth(method = "lm", se = FALSE) +
+           labs(title = "GDP per Capita vs Energy Service per Capita",
+                x = "GDP per Capita",
+                y = "Energy Service per Capita") +
+           theme_minimal() +
+           create_theme1(1) +
+           scale_color_identity() +
+           theme(legend.position = "none"))
+### https://stats.stackexchange.com/questions/205918/how-to-use-a-sigmoidal-function-in-a-multiple-nonlinear-regression
+
+# Define the non-linear model function
+gately_model <- deriv(
+  ~ (gamma_max + lambda * d_bar + phi * u_bar) * (theta_r * rising_income + theta_f * falling_income) * exp(alpha * exp(beta_i * GDP_PPP_pcap)) +
+    (1 - theta_r * rising_income - theta_f * falling_income) * lag_ES_pcap,
+  namevec = c("gamma_max", "lambda", "phi", "theta_r", "theta_f", "alpha", "beta_i"),
+  function.arg = c("GDP_PPP_pcap", "d_bar", "u_bar", "rising_income", "falling_income", "lag_ES_pcap", "gamma_max", "lambda", "phi", "theta_r", "theta_f", "alpha", "beta_i")
+)
+
+summary(data1)
+sapply(data1, function(x) sum(!is.finite(x)))
+
+# Drop rows where lag_ES_pcap is missing
+data1 <- data1 %>%
+  filter(!is.na(lag_ES_pcap))
+sapply(data1, function(x) sum(!is.finite(x)))
+
+### check for collinearity between variables
+
+library(car)
+alias(lm(ES_pcap ~ GDP_PPP_pcap_thousands + d_bar + u_bar + rising_income + falling_income + lag_ES_pcap, data = data1))
+
+# # 1. Define the grid of starting values
+# start_grid <- expand.grid(
+#   gamma_max = c(500, 1000, 1500),
+#   lambda = c(-1, 0, 1),
+#   phi = c(-1, 0, 1),
+#   theta_r = c(0.5, 1),
+#   theta_f = c(0.5, 1),
+#   alpha = c(0.0001, 0.001),
+#   beta_i = c(0.0001, 0.001)
 # )
 # 
-# # 2. Loop through each country and plot ACF and PACF
-# unique_countries <- unique(resid_df$country_name)
-# 
-# for (country in unique_countries) {
-#   country_resid <- resid_df %>%
-#     filter(country_name == country) %>%
-#     pull(residuals)
-#   
-#   # Plot ACF and PACF
-#   par(mfrow = c(1, 2))  # side-by-side plots
-#   acf(country_resid, main = paste("ACF -", country))
-#   pacf(country_resid, main = paste("PACF -", country))
+# # 2. Run the grid search
+# results <- list()
+# for (i in 1:nrow(start_grid)) {
+#   start_vals <- as.list(start_grid[i, ])
+#   cat("Trying combination", i, "of", nrow(start_grid), "\n")
+#   tryCatch({
+#     fit <- nls(
+#       ES_pcap ~ gately_model(GDP_PPP_pcap_thousands, d_bar, u_bar, rising_income, falling_income, lag_ES_pcap,
+#                              gamma_max, lambda, phi, theta_r, theta_f, alpha, beta_i),
+#       data = data1,
+#       start = start_vals,
+#       control = nls.control(maxiter = 200, warnOnly = TRUE)
+#     )
+#     results[[i]] <- list(success = TRUE, fit = fit, start = start_vals, rss = sum(resid(fit)^2))
+#   }, error = function(e) {
+#     results[[i]] <- list(success = FALSE, error = e$message, start = start_vals)
+#   })
 # }
 # 
+# # 3. Filter successful fits
+# successful_fits <- Filter(function(x) x$success, results)
 # 
-# resid_ar1 <- resid(fit1, type = "normalized")
+# # 4. Extract RSS values safely
+# rss_values <- sapply(successful_fits, function(x) {
+#   if (is.numeric(x$rss)) x$rss else NA
+# })
 # 
-# # Plot ACF
-# acf(resid_ar1)
-# pacf(resid_ar1)
+# # 5. Identify the best fit
+# best_index <- which.min(rss_values)
+# best_fit <- successful_fits[[best_index]]
+# 
+# # 6. Show summary of the best model
+# summary(best_fit$fit)
+
+
+# 
+# fit_gately_nls <- nls(
+#   ES_pcap ~ gately_model(GDP_PPP_pcap_thousands, d_bar, u_bar, rising_income, falling_income, lag_ES_pcap, gamma_max, lambda, phi, theta_r, theta_f, alpha, beta_i),
+#   data = data1,
+#   #fixed = a0 + a1 + xmid + scal + b0 + b1 ~ 1,
+#   #random = pdDiag(~ 1 | country_name),
+#   #random =  xmid ~ 1 | country_name,
+#   start = c(gamma_max = 1000, lambda = 0, phi = 0, theta_r = 1, theta_f = 1, alpha = 0.001, beta_i = 0.001),
+#   na.action = na.exclude, #na.exclude to retain original number of rows
+#   control = nls.control(
+#     maxiter = 1000,       # Increase max iterations
+#     tol = 1e-6,           # Tolerance for convergence (smaller = more precise)
+#     minFactor = 1e-12,    # Minimum step factor (helps with small parameter updates)
+#     printEval = TRUE,     # Print evaluation progress (optional, for debugging)
+#     warnOnly = TRUE       # Prevents stopping on warnings
+#   )
+# )
+
+
+library(minpack.lm)
+fit_gately_nlsLM <- nlsLM(
+  ES_pcap ~ gately_model(GDP_PPP_pcap_thousands, d_bar, u_bar, rising_income, falling_income, lag_ES_pcap, gamma_max, lambda, phi, theta_r, theta_f, alpha, beta_i),
+  data = data1,
+  start = c(
+    gamma_max = 1000,
+    lambda = 0,
+    phi = 0,
+    theta_r = 1,
+    theta_f = 1,
+    alpha = 1e-6,
+    beta_i = 1e-6
+  ),
+  na.action =  na.exclude,
+  control = nls.lm.control(maxiter = 500)
+)
+
+summary(fit_gately_nlsLM)
+
+### diagnostics
+
+# Create a clean dataset used in the model
+model_data <- na.omit(data1[, c("ES_pcap", "GDP_PPP_pcap_thousands", "d_bar", "u_bar",
+                                "rising_income", "falling_income", "lag_ES_pcap")])
+
+# Add predictions and residuals
+model_data$predicted <- predict(fit_gately_nlsLM)
+model_data$residuals <- model_data$ES_pcap - model_data$predicted
+
+
+# 1. Actual vs. Predicted
+plot(model_data$ES_pcap, model_data$predicted,
+     xlab = "Actual ES_pcap", ylab = "Predicted ES_pcap",
+     main = "Actual vs. Predicted ES_pcap",
+     pch = 19, col = rgb(0, 0, 1, 0.5))
+abline(a = 0, b = 1, col = "red", lty = 2)
+
+# 2. Residuals vs. Fitted
+plot(model_data$predicted, model_data$residuals,
+     xlab = "Predicted ES_pcap", ylab = "Residuals",
+     main = "Residuals vs. Fitted Values",
+     pch = 19, col = rgb(0, 0, 1, 0.5))
+abline(h = 0, col = "red", lty = 2)
+
+# 3. Histogram of Residuals
+hist(model_data$residuals,
+     breaks = 30,
+     main = "Histogram of Residuals",
+     xlab = "Residuals",
+     col = "lightblue", border = "white")
+
+
+# fit_gately_nlme <- nlme(
+#   ES_pcap ~ gately_model(GDP_PPP_pcap_thousands, d_bar, u_bar, rising_income, falling_income, lag_ES_pcap, gamma_max, lambda, phi, theta_r, theta_f, alpha, beta_i),
+#   data = data1,
+#   fixed = a0 + a1 + a2 + xmid + scal ~ 1,
+#   #random = xmid + a2 ~ 1 | country_name, # This was done
+#   random = xmid + scal  ~ 1 | country_name,
+#   #random = xmid + a1 ~ 1 | country_name,
+#   #random = xmid ~ 1 | country_name,
+#   start = c(a0 = 5000, a1 = 10, a2 = 2, xmid = 10000, scal = 1000),
+#   #correlation = corARMA(p = 1, q = 2, form = ~ year | country_name),,  # <-- this models autocorrelation
+#   na.action = na.exclude, #na.exclude to retain original number of rows
+#   control = nlmeControl(pnlsTol = 0.5, maxIter = 500, minFactor = 1e-10, msMaxIter = 500, warnOnly = TRUE)
+#   #control = nlmeControl(pnlsTol = 0.1, maxIter = 100)
+# )
+# 
+# summary(fit_gately)
+
+
+###################################################################################################################################################################
+
 
 ##################################################################################################################
-#### Summarizing Logistic model output
+#### Summarizing  model output
 # Copy summary table in neatly formatted condition and save it as a .csv file using stargazer, including random effects variance and full model summary
 # Install required packages
 # install.packages(c("broom.mixed", "kableExtra"))
@@ -684,12 +346,8 @@ ggplotly(ggplot(data1, aes(x = GDP_PPP_pcap, y = ES_pcap, color = country_name))
 # kable(tidy_fit, digits = 3, caption = "Summary of nlme Model") %>%
 #   kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"))
 
-summary_table <- stargazer(fit1, type = "html", title = "Model Summary", out = here::here("results/model_summary_logistic1.html"))
-summary_table <- stargazer(fit2, type = "html", title = "Model Summary", out = here::here("results/model_summary_logistic2.html"))
-summary_table <- stargazer(fit3, type = "html", title = "Model Summary", out = here::here("results/model_summary_logistic3.html"))
-# 
-# summary_table <- broom.mixed::tidy(fit2)
-# summary_table <- summary_table %>%
+# summary_table <- stargazer(fit_gately_nlsLM, type = "html", title = "Model Summary", out = here::here("results/model_summary_gately.html"))
+
 #   mutate(
 #     term = gsub("random\\(Intercept\\)", "Random Intercept", term),
 #     term = gsub("fixed\\(Intercept\\)", "Fixed Intercept", term)
@@ -700,16 +358,48 @@ summary_table <- stargazer(fit3, type = "html", title = "Model Summary", out = h
 
 ################################################################################################
 #### Getting Predicted Values and Graphs
+
+create_theme <- function(text_size) {
+  theme(
+    axis.title.y = element_text(size = text_size, family = "ShellMedium"),
+    axis.title.x = element_text(size = text_size, family = "ShellMedium"),
+    axis.text.y = element_text(size = text_size - 2, family = "ShellMedium"),
+    axis.text.x = element_text(size = text_size - 2, family = "ShellMedium", angle = 45, hjust = 1),
+    #plot.margin = margin(l = 40, r = 40, t = 60, b = 40),
+    legend.position = c(1.05, 0.9),
+    legend.text = element_text(size = text_size - 2, family = "ShellMedium"),
+    legend.title = element_blank(),
+    legend.background = element_rect(fill = "transparent", color = NA),  # Remove black box around legend
+    legend.key = element_rect(fill = "transparent", color = NA),  # Remove black box around legend keys
+    plot.background = element_rect(fill = "transparent", color = NA),
+    panel.background = element_rect(fill = "transparent", color = NA),
+    panel.grid.major = element_blank(), # element_line(color = "gray", linetype = "dashed"),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(size = text_size, family = "ShellMedium", hjust = 0.5),  # Center-align the title
+    plot.caption = element_blank(),
+    plot.subtitle = element_text(hjust = 0.5, size = text_size - 4, family = "ShellMedium"),
+    axis.line = element_line(color = "black"),  # Add axis lines
+    axis.ticks = element_line(color = "black"),
+    axis.ticks.length = unit(0.25, "cm"),  # Customize the length of the tick marks
+    panel.border = element_rect(color = "black", fill = NA),  # Add a square border inside the axis
+    plot.margin = unit(c(0, 0, 0, 0), "cm")
+  )
+}
 # Model chosen
 
-fit <- fit1
+fit <- fit_gately_nlsLM
+
+
+
+# Create a clean dataset used in the model
 
 # data1a <- data1
 # 
 # data1a$predicted_ES_pcap <- predict(fit, newdata = data1a)
-
+# Historical fitted values
 # Predictions from model:
-data1_model <- data1[complete.cases(data1[, c("ES_pcap", "GDP_PPP_pcap", "Gini")]), ]
+data1_model <- data1[complete.cases(data1[, c("ES_pcap", "GDP_PPP_pcap_thousands", "d_bar", "u_bar",
+                                              "rising_income", "falling_income", "lag_ES_pcap")]), ]
 
 data1_model$predicted_ES_pcap <- predict(fit, newdata = data1_model)
 # Step 1: Create a copy of the data used in model fitting (after NA removal)
@@ -734,32 +424,32 @@ ggplot(data1_model, aes(x = year, y = residuals, color = country_name)) +
 
 ####### Displaying Output
 # Extract random effects
-random_effects <- ranef(fit)
+#random_effects <- ranef(fit)
 
 # Convert to a tidy format
-random_df <- random_effects %>%
-  tibble::rownames_to_column("country_name") %>%
-  tidyr::pivot_longer(-country_name, names_to = "term", values_to = "estimate") %>%
-  mutate(effect_type = "Random")
+# random_df <- random_effects %>%
+#   tibble::rownames_to_column("country_name") %>%
+#   tidyr::pivot_longer(-country_name, names_to = "term", values_to = "estimate") %>%
+#   mutate(effect_type = "Random")
 
 # Extract fixed effects
 fixed_df <- broom::tidy(fit) %>%
   mutate(effect_type = "Fixed")
 
 # Combine both
-combined_df <- bind_rows(fixed_df, random_df)
+combined_df <- bind_rows(fixed_df)#, random_df)
 
 # Create a GT table
-gt(combined_df) %>%
-  tab_header(title = "Fixed and Random Effects from Nonlinear Mixed-Effects Model") %>%
-  cols_label(
-    country_name = "Country",
-    term = "Parameter",
-    estimate = "Estimate",
-    effect_type = "Effect Type"
-  ) %>%
-  fmt_number(columns = "estimate", decimals = 3)
-
+# gt(combined_df) %>%
+#   tab_header(title = "Fixed and Random Effects from Nonlinear Mixed-Effects Model") %>%
+#   cols_label(
+#     country_name = "Country",
+#     term = "Parameter",
+#     estimate = "Estimate",
+#     effect_type = "Effect Type"
+#   ) %>%
+#   fmt_number(columns = "estimate", decimals = 3)
+# 
 
 # plot predicted versus actual values
 ggplot(data1_model, aes(x = year, y = ES_pcap)) +
@@ -781,11 +471,51 @@ ggplot(data1_model, aes(x = year, y = ES_pcap)) +
 # Including random effects for known countries
 future_data <- data %>%
   filter(#country_id <= 15 & 
-    year > 2024)
+    year >= 2024)
 
 head(future_data)
 
-future_data$predicted_ES_pcap <- predict(fit, newdata = future_data, level = 1) # level = 1 to incorporate random effects
+# Initialize
+predictions <- list()
+data.orig <- data.frame(future_data)  # Replace with your actual data
+model <- fit_gately_nlsLM  # Your fitted nlsLM model
+
+# Loop over forecast years
+for (i in 2024:2100) {
+  # Update lag_ES_pcap with previous prediction
+  data.orig <- data.orig %>%
+    group_by(country_id) %>%
+    mutate(lag_ES_pcap = case_when(year == i ~ lag(ES_pcap), TRUE ~ lag_ES_pcap)) %>%
+    ungroup()
+  
+  # Prepare data for prediction
+  data.used <- data.orig %>% filter(year == i)
+  
+  # Predict ES_pcap for year i
+  predictions.loop <- predict(model, newdata = data.used)
+  
+  # Merge predictions back into the data
+  prediction_df <- data.frame(predictions.loop, data.used[c("country_id", "year")])
+  prediction.data <- merge(data.orig, prediction_df, by = c("country_id", "year"), all.x = TRUE) %>%
+    group_by(country_id) %>%
+    mutate(
+      ES_pcap = case_when(year == i ~ predictions.loop, TRUE ~ ES_pcap),
+      lag_ES_pcap = case_when(year == i ~ lag(ES_pcap), TRUE ~ lag_ES_pcap)
+    ) %>%
+    select(-predictions.loop) %>%
+    ungroup()
+  
+  # Update original data
+  data.orig <- prediction.data
+  
+  # Store prediction
+  predictions[[i - 2023]] <- prediction.data
+}
+
+predictions_data <- bind_rows(predictions)
+### up to here
+
+future_data$predicted_ES_pcap <- predict(fit, newdata = future_data) #, level = 1) # level = 1 to incorporate random effects
 
 # Plot predicted values for future years and historical data faceted by country
 # ggplot() +
@@ -852,32 +582,7 @@ future_data$predicted_ES_pcap <- predict(fit, newdata = future_data, level = 1) 
 #   )
 # }
 
-create_theme <- function(text_size) {
-  theme(
-    axis.title.y = element_text(size = text_size, family = "ShellMedium"),
-    axis.title.x = element_text(size = text_size, family = "ShellMedium"),
-    axis.text.y = element_text(size = text_size - 2, family = "ShellMedium"),
-    axis.text.x = element_text(size = text_size - 2, family = "ShellMedium", angle = 45, hjust = 1),
-    #plot.margin = margin(l = 40, r = 40, t = 60, b = 40),
-    legend.position = c(1.05, 0.9),
-    legend.text = element_text(size = text_size - 2, family = "ShellMedium"),
-    legend.title = element_blank(),
-    legend.background = element_rect(fill = "transparent", color = NA),  # Remove black box around legend
-    legend.key = element_rect(fill = "transparent", color = NA),  # Remove black box around legend keys
-    plot.background = element_rect(fill = "transparent", color = NA),
-    panel.background = element_rect(fill = "transparent", color = NA),
-    panel.grid.major = element_blank(), # element_line(color = "gray", linetype = "dashed"),
-    panel.grid.minor = element_blank(),
-    plot.title = element_text(size = text_size, family = "ShellMedium", hjust = 0.5),  # Center-align the title
-    plot.caption = element_blank(),
-    plot.subtitle = element_text(hjust = 0.5, size = text_size - 4, family = "ShellMedium"),
-    axis.line = element_line(color = "black"),  # Add axis lines
-    axis.ticks = element_line(color = "black"),
-    axis.ticks.length = unit(0.25, "cm"),  # Customize the length of the tick marks
-    panel.border = element_rect(color = "black", fill = NA),  # Add a square border inside the axis
-    plot.margin = unit(c(0, 0, 0, 0), "cm")
-  )
-}
+
 
 p1 <- ggplot() +
   # Historical data
@@ -910,9 +615,9 @@ ggplotly(p1 + theme(legend.position = "right")) %>%
   layout(title = "Predicted Energy Service per Capita using Additive Logistic Model",
          xaxis = list(title = "GDP per capita (USD)"),
          yaxis = list(title = "Energy Service per Capita (passenger km / capita)")) %>%
-  htmlwidgets::saveWidget(here::here("plots/predicted_ES_pcap_logistic1.html"), selfcontained = TRUE)
+  htmlwidgets::saveWidget(here::here("plots/predicted_ES_pcap_gately.html"), selfcontained = TRUE)
 
-ggsave(here::here("plots/predicted_ES_pcap_logistic1.png"), plot = p1, width = 16, height = 16, dpi = 150)
+ggsave(here::here("plots/predicted_ES_pcap_gately.png"), plot = p1, width = 16, height = 16, dpi = 150)
 
 ###############################################################
 ### Multiplicative Logistic

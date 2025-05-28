@@ -1330,4 +1330,3 @@ p1 <- ggplot(all.data.gompertz, aes(x = year, y = density_psqkm, colour = countr
 #         label = "Gompertz Model Fit", color = "black", size = 10, hjust = 1, vjust = 1) 
 ggplotly(p1)
 
-View(all.data.gompertz)
