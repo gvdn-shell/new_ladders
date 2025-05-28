@@ -1277,7 +1277,10 @@ all.data.gompertz <- all.data.gompertz %>%
     rising_income = if_else(GDP_PPP_pcap > lag(GDP_PPP_pcap, default = first(GDP_PPP_pcap)), 1, 0),
     falling_income = if_else(GDP_PPP_pcap < lag(GDP_PPP_pcap, default = first(GDP_PPP_pcap)), 1, 0)
   ) %>%
-  select(-USA_dens, -USA_urban)
+  select(-USA_dens, -USA_urban) %>%
+  ungroup() %>%
+  #Join with wem_urbanization data
+  left_join(urban_mappings_list_all, by = c("country_id", "year")) 
 
 
 # additional_imputation <- all.data.gompertz %>%
@@ -1304,8 +1307,8 @@ all.data.gompertz <- all.data.gompertz %>%
 ########## Nice extrapolation: https://stackoverflow.com/questions/74858960/how-to-extrapolate-values-over-dates-using-r
 
 ### Save to rds in data folder
-saveRDS(all.data.gompertz, here::here("data", "all_data_wem_espcap_imputation.rds"))
-write_csv(all.data.gompertz, here::here("data", "all_data_wem_espacp_imputation.csv"))
+saveRDS(all.data.gompertz, here::here("data", "all_data_wem_espcap_imputation_wem_urban.rds"))
+write_csv(all.data.gompertz, here::here("data", "all_data_wem_espcap_imputation_wem_urban.csv"))
 
 #########################################################################################################################################
 
