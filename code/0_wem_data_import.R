@@ -306,9 +306,50 @@ dbDisconnect(conn)
 
 excel_file1 <- here::here("data", "Shell WEM - B Historic Data v3.4.1.xlsx")
 excel_file2 <- here::here("data", "Shell WEM - C Scenario Inputs v3.4.1.xlsx")
+excel_file3 <- here::here("data", "Gini v2.xlsx")
 # Create a vector of named regions
 named_regions1 <- c("B_Historic_urbanisation_by_year")
 named_regions2 <- c("C_Projections_urbanisation_Set_1")
+
+# Define named regions and corresponding case labels
+named_regions <- c("B_Gini_set_1", "B_Gini_set_2", "B_Gini_set_3")
+case_labels <- c("gini_case1", "gini_case2", "gini_case3")
+
+# Function to read and transform each sheet
+read_gini_case <- function(region, case_label) {
+  df <- read.xlsx(excel_file3, namedRegion = region, skipEmptyRows = FALSE, colNames = FALSE) * 100
+  colnames(df) <- 1960:2100
+  
+  df %>%
+    mutate(country_id = row_number()) %>%
+    pivot_longer(-country_id, names_to = "year", values_to = case_label) %>%
+    mutate(year = as.numeric(year))
+}
+
+# Read and process all cases
+gini_dfs <- map2(named_regions, case_labels, read_gini_case)
+
+# Merge all data frames on country_id and year
+gini_combined <- reduce(gini_dfs, full_join, by = c("country_id", "year"))
+
+# View result
+print(head(gini_combined))
+
+# Plot the Gini coefficient for each case (facetted by case) and coloured by country_id
+# ggplot(gini_combined, aes(x = year)) +
+#   geom_line(aes(y = gini_case1, color = as.factor(country_id)), size = 0.5) +
+#   geom_line(aes(y = gini_case2, color = as.factor(country_id)), size = 0.5, linetype = "dashed") +
+#   geom_line(aes(y = gini_case3, color = as.factor(country_id)), size = 0.5, linetype = "dotted") +
+#   labs(title = "Gini Coefficient Over Time by Case",
+#        x = "Year",
+#        y = "Gini Coefficient",
+#        color = "Country ID") +
+#   theme_minimal() +
+#   facet_wrap(~ country_id, scales = "free_y") +
+#   theme(legend.position = "none")
+
+
+####################################################################################
 
 # Read each named region into a list of data frames
 urban_mappings_list <- lapply(named_regions1, function(region) {
@@ -1221,8 +1262,6 @@ last_historical_year <- 2023
 #          falling_income = case_when(GDP_PPP_pcap < lag(GDP_PPP_pcap, default = first(GDP_PPP_pcap)) ~ 1,
 #                                    TRUE ~ 0))        
 
-
-
 # Clean and transform the main dataset
 all.data.gompertz <- all.data.gompertz.reg1 %>%
   mutate(across(
@@ -1257,7 +1296,11 @@ all.data.gompertz <- all.data.gompertz.reg1 %>%
     country_id, country_name, iso3c, wem_regions, Population, year,
     Gini, density_psqkm, urbanization_perc, ES_pcap, energy_service,
     GDP_PPP_pcap, GDP_PPP, prop_TFC_PTR, Land_Area = A_Land_Area, historical_data
-  )
+  ) %>%
+  left_join(urban_mappings_list_all, by = c("country_id", "year")) %>%
+  # Set urbanization_perc column values to the values of the urbanization_perc column in the urban_mappings_list_all dataset
+  mutate(urbanization_perc = wem_urbanization_perc)
+  
 
 # Extract USA reference values
 all.data.gompertz.usa <- all.data.gompertz %>%
@@ -1280,8 +1323,8 @@ all.data.gompertz <- all.data.gompertz %>%
   select(-USA_dens, -USA_urban) %>%
   ungroup() %>%
   #Join with wem_urbanization data
-  left_join(urban_mappings_list_all, by = c("country_id", "year")) 
-
+  #left_join(urban_mappings_list_all, by = c("country_id", "year")) %>%
+  left_join(gini_combined, by = c("country_id", "year")) 
 
 # additional_imputation <- all.data.gompertz %>%
 #   ungroup() %>%
@@ -1309,24 +1352,33 @@ all.data.gompertz <- all.data.gompertz %>%
 ### Save to rds in data folder
 saveRDS(all.data.gompertz, here::here("data", "all_data_wem_espcap_imputation_wem_urban.rds"))
 write_csv(all.data.gompertz, here::here("data", "all_data_wem_espcap_imputation_wem_urban.csv"))
-
 #########################################################################################################################################
-
-p1 <- ggplot(all.data.gompertz, aes(x = year, y = density_psqkm, colour = country_id)) +
-  geom_line(aes(group = country_name), linetype = "dashed") +
-  #geom_line(aes(y = SI.POV.GINI, group = country_name), linetype = "solid")  +
-  theme_bw() + create_theme1(2) +
-  # geom_text(data = subset(plot_data, !duplicated(country_name, fromLast = TRUE)),
-  #           aes(label = country_name), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02),
-  #           size = rel(8)) +
-  theme(legend.position = "none") +
-  labs(title = "Income Inequality Over Time", 
-       x = "Year", y = "Income inequality (Gini)") +
-  scale_x_continuous(breaks = seq(1960, 2024, by = 4), trans = "log2") +
-  scale_color_identity() #+
-# Add Gompertz line and add label saying Gompertz Model fit
-#geom_line(data = fitted_values, aes(x = log_GDP_pcap, y = ES_pcap), color = "black", linetype = "solid", linewidth = 2) #+
-#annotate("text", x = max(fitted_values$log_GDP_pcap) - 0.5, y = max(fitted_values$ES_pcap) - 0.5, 
-#         label = "Gompertz Model Fit", color = "black", size = 10, hjust = 1, vjust = 1) 
-ggplotly(p1)
-
+# 
+# p1 <- ggplot(all.data.gompertz, aes(x = year, y = density_psqkm, colour = country_id)) +
+#   geom_line(aes(group = country_name), linetype = "dashed") +
+#   #geom_line(aes(y = SI.POV.GINI, group = country_name), linetype = "solid")  +
+#   theme_bw() + create_theme1(2) +
+#   # geom_text(data = subset(plot_data, !duplicated(country_name, fromLast = TRUE)),
+#   #           aes(label = country_name), hjust = 0.5, vjust = 1, position = position_jitter(width = 0.02, height = 0.02),
+#   #           size = rel(8)) +
+#   theme(legend.position = "none") +
+#   labs(title = "Income Inequality Over Time", 
+#        x = "Year", y = "Income inequality (Gini)") +
+#   scale_x_continuous(breaks = seq(1960, 2024, by = 4), trans = "log2") +
+#   scale_color_identity() #+
+# # Add Gompertz line and add label saying Gompertz Model fit
+# #geom_line(data = fitted_values, aes(x = log_GDP_pcap, y = ES_pcap), color = "black", linetype = "solid", linewidth = 2) #+
+# #annotate("text", x = max(fitted_values$log_GDP_pcap) - 0.5, y = max(fitted_values$ES_pcap) - 0.5, 
+# #         label = "Gompertz Model Fit", color = "black", size = 10, hjust = 1, vjust = 1) 
+# ggplotly(p1)
+# 
+# ggplot(all.data.gompertz, aes(x = year)) + 
+#   geom_line(aes(y = gini_case1, color =
+# as.factor(country_id)), size = 0.5) + geom_line(aes(y = gini_case2, color =
+# as.factor(country_id)), size = 0.5, linetype = "dashed") + geom_line(aes(y =
+# gini_case3, color = as.factor(country_id)), size = 0.5, linetype = "dotted") + 
+#   geom_line(aes(y = Gini, color = as.factor(country_id)), size = 0.5, linetype = "longdash") +
+# labs(title = "Gini Coefficient Over Time by Case", x = "Year", y = "Gini
+# Coefficient", color = "Country ID") + theme_minimal() + facet_wrap(~
+# country_id, scales = "free_y") + theme(legend.position = "none")
+# 
