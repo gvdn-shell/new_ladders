@@ -52,7 +52,10 @@ data <- readRDS("data/all_data_wem_espcap_imputation_wem_urban.rds") %>%
   group_by(country_id) %>%
   arrange(country_id, year) %>%
   mutate(lag_ES_pcap = lag(ES_pcap, order_by = year),
-         Gini_01 = Gini / 100,
+         Gini_00 = Gini / 100,
+         Gini_01 = gini_case1 / 100,
+         Gini_02 = gini_case2 / 100,
+         Gini_03 = gini_case3 / 100,
          GDP_PPP_pcap_thousands = GDP_PPP_pcap / 1000) %>%
   ungroup()
 # 
@@ -475,13 +478,80 @@ future_data <- data %>%
 
 head(future_data)
 
+### Want all data
+
+predictions_data <- data
+
 # Initialize
 predictions <- list()
-data.orig <- data.frame(future_data)  # Replace with your actual data
-model <- fit_gately_nlsLM  # Your fitted nlsLM model
+data.orig <- data.frame(predictions_data)  # Replace with your actual data
+model <- fit_gately_nlsLM  # fitted nlsLM model
 
-# Loop over forecast years
+#######################################################################################################################
 for (i in 2024:2100) {
+  data.orig <- data.orig %>%
+    group_by(country_id) %>%
+    mutate(lag_ES_pcap = case_when(year == i ~ lag(ES_pcap), TRUE ~ lag_ES_pcap)) %>%
+    ungroup()
+
+  data.used <- data.orig %>% filter(year == i)
+
+  # Predict lg.trns.LFPR for year i
+  predictions.loop <- predict(model, newdata = data.used)
+  prediction_df <- data.frame(predictions.loop, data.used[c("country_id", "year")])#data.frame(predictions.loop, attr(predictions.loop, "index"))
+
+  prediction.data <- merge(data.orig, prediction_df, by = c("country", "year"), all.x = TRUE) %>%
+    group_by(country) %>%
+    mutate(
+      ES_pcap = case_when(year == i ~ predictions.loop, TRUE ~ lg.trns.LFPR),
+      lg.lag.trans.LFPR = case_when(year == i ~ lag(lg.trns.LFPR), TRUE ~ lg.lag.trans.LFPR)
+    ) %>%
+    select(-predictions.loop) %>%
+    ungroup()
+
+  # Update data.orig with prediction.data
+  data.orig <- prediction.data
+
+  # Store the prediction data in the list
+  predictions[[i - 2023]] <- prediction.data
+}
+
+
+# 
+# for (i in 2023:2100) {
+#   data.orig <- data.orig %>%
+#     group_by(country_id) %>%
+#     mutate(lag_ES_pcap = case_when(year == i ~ lag(ES_pcap), TRUE ~ lag_ES_pcap)) %>%
+#     ungroup()
+#   
+#   data.used <- pdata.frame(data.orig %>% filter(year == i), index = c("country", "year"))
+#   
+#   # Predict lg.trns.LFPR for year i
+#   predictions.loop <- predict(panel_model, newdata = data.used)
+#   prediction_df <- data.frame(predictions.loop, attr(predictions.loop, "index"))
+#   
+#   prediction.data <- merge(data.orig, prediction_df, by = c("country", "year"), all.x = TRUE) %>%
+#     group_by(country) %>%
+#     mutate(
+#       lg.trns.LFPR = case_when(year == i ~ predictions.loop, TRUE ~ lg.trns.LFPR),
+#       lg.lag.trans.LFPR = case_when(year == i ~ lag(lg.trns.LFPR), TRUE ~ lg.lag.trans.LFPR)
+#     ) %>%
+#     select(-predictions.loop) %>%
+#     ungroup()
+#   
+#   # Update data.orig with prediction.data
+#   data.orig <- prediction.data
+#   
+#   # Store the prediction data in the list
+#   predictions[[i - 2022]] <- prediction.data
+# }
+# 
+
+
+
+################################
+# Loop over forecast years
+for (i in 2023:2100) {
   # Update lag_ES_pcap with previous prediction
   data.orig <- data.orig %>%
     group_by(country_id) %>%
@@ -509,7 +579,7 @@ for (i in 2024:2100) {
   data.orig <- prediction.data
   
   # Store prediction
-  predictions[[i - 2023]] <- prediction.data
+  predictions[[i - 2022]] <- prediction.data
 }
 
 predictions_data <- bind_rows(predictions)
@@ -612,9 +682,9 @@ p1 <- ggplot() +
 
 # Save to interactive html widget
 ggplotly(p1 + theme(legend.position = "right")) %>%
-  layout(title = "Predicted Energy Service per Capita using Additive Logistic Model",
-         xaxis = list(title = "GDP per capita (USD)"),
-         yaxis = list(title = "Energy Service per Capita (passenger km / capita)")) %>%
+  #layout(title = "Predicted Energy Service per Capita using Additive Logistic Model",
+  #       xaxis = list(title = "GDP per capita (USD)"),
+  #       yaxis = list(title = "Energy Service per Capita (passenger km / capita)")) %>%
   htmlwidgets::saveWidget(here::here("plots/predicted_ES_pcap_gately.html"), selfcontained = TRUE)
 
 ggsave(here::here("plots/predicted_ES_pcap_gately.png"), plot = p1, width = 16, height = 16, dpi = 150)

@@ -437,7 +437,7 @@ countries.data.iso <- countries.data %>%
   left_join(all.country.mappings, by = c("country_name" = "A_WEM_Countries_Mapped")) %>%
   select(country_id, country_name, iso3c, wem_regions = A_WEM_Regions_Mapped) %>%
   mutate(country_name = ifelse(is.na(country_name), country_id, country_name)) %>%
-  filter(complete.cases(.)) %>%
+  #filter(complete.cases(.)) %>% # Activate this if want to only focus on actual countries with ISO
   as_tibble()
 
 # Pull unique values in iso3c column from countries.data.iso
@@ -527,8 +527,8 @@ get_mode <- function(x) {
 
 ### Merge with gdp.pop.data
 all.data1 <- gdp.pop.data.wider %>%
-  left_join(all.data, by = c("country_id" = "country_id", "year" = "year")) %>%#all.data %>%
-  #left_join(gdp.pop.data.wider, by = c("country_id" = "country_id", "year" = "year")) %>%
+  #left_join(all.data, by = c("country_id" = "country_id", "year" = "year")) %>%#all.data %>%
+  full_join(all.data, by = c("country_id" = "country_id", "year" = "year")) %>%
   mutate(ES_pcap = energy_service / (Population)) %>%
   mutate(Population = Population * 1e03) %>%
   select(country_id, country_name, wem_regions, Population, iso3c, year, SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, ES_pcap, energy_service, GDP_PPP_pcap, GDP_PPP) %>%
@@ -544,7 +544,7 @@ all.data1 <- gdp.pop.data.wider %>%
   arrange(country_name, year) %>%
   left_join(tfc.enerdem.data1, by = c("country_id" = "country_id", "year" = "year")) %>%
   # Drop all rows where country_name is missing
-  filter(!is.na(country_name)) %>%
+  #filter(!is.na(country_name)) %>%
   # Dummies for missing values
   mutate(gini_missing = ifelse(is.na(SI.POV.GINI), 1, 0),
          density_missing = ifelse(is.na(EN.POP.DNST), 1, 0),
@@ -1325,6 +1325,16 @@ all.data.gompertz <- all.data.gompertz %>%
   #Join with wem_urbanization data
   #left_join(urban_mappings_list_all, by = c("country_id", "year")) %>%
   left_join(gini_combined, by = c("country_id", "year")) 
+
+# Merge with countries.data and if country_name is missing, set it to value of country_name in countries.data
+all.data.gompertz <- all.data.gompertz %>%
+  left_join(countries.data, by = "country_id") %>%
+  mutate(
+    country_name = ifelse(is.na(country_name.x), country_name.y, country_name.x)
+  ) %>%
+  select(-country_name.x, -country_name.y) %>%
+  # Move country_name to second column and drop wem_regions column
+  select(country_id, country_name, everything(), -wem_regions, -iso3c)
 
 # additional_imputation <- all.data.gompertz %>%
 #   ungroup() %>%
