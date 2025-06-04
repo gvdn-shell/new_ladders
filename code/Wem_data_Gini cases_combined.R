@@ -20,4 +20,4 @@ data <- left_join(
   )
 View(data)
 
-saveRDS(data, file = "all_data_wem_espcap_imputation_wem_urban_Gini.rds")
+saveRDS(data, file = "data/all_data_wem_espcap_imputation_wem_urban_Gini.rds")

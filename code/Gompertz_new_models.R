@@ -28,7 +28,7 @@ if (any(!installed_packages)) {
 invisible(lapply(packages, library, character.only = TRUE))
 
 
-data <- readRDS("data/all_data_wem_espcap_imputation_wem_urban.rds")
+data <- readRDS("data/all_data_wem_espcap_imputation_wem_urban_Gini.rds")
 
 #####
 
@@ -366,7 +366,11 @@ Gompertz_model2 <- deriv(
   function.arg = c("GDP_PPP_pcap", "density_psqkm", "a", "b", "alpha", "beta", "Gini")
 )
 
-
+Gompertz_model3 <- deriv(
+  ~ (a + b * density_psqkm) * exp(-alpha * Gini_case1 * exp(-beta * GDP_PPP_pcap)),
+  namevec = c("a", "b","alpha", "beta"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "a", "b", "alpha", "beta", "Gini_case1")
+)
 
 fit1 <- nlme(
   ES_pcap ~ Gompertz_model1(GDP_PPP_pcap, density_psqkm, a, b, alpha, beta),
@@ -384,17 +388,29 @@ fit2 <- nlme(
   ES_pcap ~ Gompertz_model2(GDP_PPP_pcap, density_psqkm, a, b, alpha, beta, Gini),
   data = data1,
   fixed = a + b + alpha + beta ~ 1,
-  random = alpha + b   ~ 1 | country_name,
-  start = c(a = 1000, b = 0.1, alpha = 1, beta = 0.001),
+  random =    beta   ~ 1 | country_name,
+  start = c(a = 5000, b = 0.01, alpha = 1, beta = 0.001),
   na.action = na.exclude, #na.exclude to retain original number of rows
   control = nlmeControl(pnlsTol = 0.5, maxIter = 500, minFactor = 1e-10, msMaxIter = 500, warnOnly = TRUE) 
 )
 
 summary(fit2)
+
+fit3 <- nlme(
+  ES_pcap ~ Gompertz_model3(GDP_PPP_pcap, density_psqkm, a, b, alpha, beta, Gini_case1),
+  data = data1,
+  fixed = a + b + alpha + beta ~ 1,
+  random =    beta   ~ 1 | country_name,
+  start = c(a = 5000, b = 0.01, alpha = 1, beta = 0.001),
+  na.action = na.exclude, #na.exclude to retain original number of rows
+  control = nlmeControl(pnlsTol = 0.5, maxIter = 500, minFactor = 1e-10, msMaxIter = 500, warnOnly = TRUE) 
+)
+
+summary(fit3)
 # Copy summary table in neatly formatted condition and save it as a .csv file using stargazer, including random effects variance and full model summary
 
 library(stargazer)
-summary_table <- stargazer(fit1, type = "text", title = "Model Summary", out = here::here("plots/model_summary.html"))
+summary_table <- stargazer(fit3, type = "text", title = "Model Summary", out = here::here("plots/model_summary.html"))
 
 summary_table <- broom.mixed::tidy(fit5)
 summary_table <- summary_table %>%
@@ -407,7 +423,7 @@ write.csv(summary_table, "summary_table.csv", row.names = FALSE)
 intervals <- intervals(fit5)
 # Model chosen
 
-fit <- fit1
+fit <- fit3
 
 # Predictions from model:
 data1_model <- data1[complete.cases(data1[, c("ES_pcap", "GDP_PPP_pcap", "Gini")]), ]
@@ -602,7 +618,7 @@ p1_plotly <- plotly::layout(p1_plotly,
 
 # Save as HTML
 htmlwidgets::saveWidget(p1_plotly,
-                        file = here::here("plots/Gompertz mixed models/Gompertz_new_models_v1.html"),
+                        file = here::here("plots/Gompertz mixed models/Gompertz_new_models_Gini_case1.html"),
                         selfcontained = TRUE)
 
 
