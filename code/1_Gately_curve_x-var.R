@@ -51,12 +51,14 @@ showtext_auto()
 data <- readRDS("data/all_data_wem_espcap_imputation_wem_urban.rds") %>%
   group_by(country_id) %>%
   arrange(country_id, year) %>%
+  #mutate(ES_pcap = ES_pcap / 1000) %>%
   mutate(lag_ES_pcap = lag(ES_pcap, order_by = year),
          Gini_00 = Gini / 100,
          Gini_01 = gini_case1 / 100,
          Gini_02 = gini_case2 / 100,
          Gini_03 = gini_case3 / 100,
-         GDP_PPP_pcap_thousands = GDP_PPP_pcap / 1000) %>%
+         GDP_PPP_pcap_thousands = GDP_PPP_pcap / 1000
+         ) %>%
   ungroup()
 # 
 # shell.brand.palette <- readxl::read_excel(here::here("Data", "Shell Scenarios v14.6 2023_06_23.xlsm"), sheet = "Settings",
@@ -153,9 +155,28 @@ ggplotly(ggplot(data = data1, aes(x = GDP_PPP_pcap, y = ES_pcap, colour = Hex)) 
   theme(legend.position = "none"))
 
 ############################################################################################################################
-# Drop UAE
+# Remove funny countries from estimation
 
-exclude.countries <- c("Luxembourg", "United Arab Emirates", "Qatar", "Kuwait", "Libya")
+# Define countries to exclude
+oil_gas_countries <- c("Iran", "Malaysia", "Algeria", "Syria", "Sudan", "Ecuador", "Yemen", "Angola", "Nigeria", "Venezuela")
+
+former_ussr_and_others <- c("Russia", "Uzbekistan", "Belarus", "Poland", "Romania", "Ukraine", "Bulgaria",
+                            "Azerbaijan", "Kazakhstan", "Turkmenistan", "North Korea")
+
+rest_of_countries <- c("International Marine Bunkers", "Rest of Europe West Other", "Rest of Europe East Other",
+                       "Rest of EU New 12", "Baltic States", "Rest of Central Asia", "Rest of East Asia",
+                       "Rest of SE Asia", "Rest of South Asia", "Rest of Middle East", "Rest Of Arabian Peninsula",
+                       "Rest of North Africa", "Rest of East Africa", "Rest of Southern Africa",
+                       "Rest of West Africa", "Rest of North America", "Rest of Central America & Caribbean",
+                       "Rest of South America", "Rest of Oceania")
+
+excluded.countries <- c("Luxembourg", "United Arab Emirates", "Qatar", "Kuwait", "Libya", "Saudi Arabia")
+
+# Combine all into one exclusion list
+exclude.countries <- c(oil_gas_countries, former_ussr_and_others, rest_of_countries, excluded.countries)
+
+
+full.dataset <- data1
 
 data1 <- data1 %>%
   filter(!country_name %in% exclude.countries)
@@ -268,7 +289,7 @@ fit_gately_nlsLM <- nlsLM(
   ES_pcap ~ gately_model(GDP_PPP_pcap_thousands, d_bar, u_bar, rising_income, falling_income, lag_ES_pcap, gamma_max, lambda, phi, theta_r, theta_f, alpha, beta_i),
   data = data1,
   start = c(
-    gamma_max = 1000,
+    gamma_max = 1000, # If ES in original, set to 1000
     lambda = 0,
     phi = 0,
     theta_r = 1,
@@ -292,11 +313,21 @@ fit_gately_nlsLM <- nlsLM(
 
 summary(fit_gately_nlsLM)
 
+# copy parameters to clipboard
+parameters <- coef(fit_gately_nlsLM)
+write.table(parameters, file = "clipboard", sep = "\t", row.names = TRUE, col.names = TRUE)
+
 ### diagnostics
 
 # Create a clean dataset used in the model
 model_data <- na.omit(data1[, c("ES_pcap", "GDP_PPP_pcap_thousands", "d_bar", "u_bar",
                                 "rising_income", "falling_income", "lag_ES_pcap")])
+
+# full_model_data <- na.omit(full.dataset[, c("ES_pcap", "GDP_PPP_pcap_thousands", "d_bar", "u_bar",
+#                                 "rising_income", "falling_income", "lag_ES_pcap")]) %>%
+#   filter(!is.na(lag_ES_pcap))
+# # Use full dataset
+# model_data <- full_model_data
 
 # Add predictions and residuals
 model_data$predicted <- predict(fit_gately_nlsLM)
@@ -417,7 +448,14 @@ fit <- fit_gately_nlsLM
 data1_model <- data1[complete.cases(data1[, c("ES_pcap", "GDP_PPP_pcap_thousands", "d_bar", "u_bar",
                                               "rising_income", "falling_income", "lag_ES_pcap")]), ]
 
+# Full dataset of all countries
+data1_model <- full.dataset[complete.cases(full.dataset[, c("ES_pcap", "GDP_PPP_pcap_thousands", "d_bar", "u_bar",
+                                              "rising_income", "falling_income", "lag_ES_pcap")]), ]
+
 data1_model$predicted_ES_pcap <- predict(fit, newdata = data1_model)
+
+#### Check
+View(data1_model %>% filter(country_name == "Libya"))
 # Step 1: Create a copy of the data used in model fitting (after NA removal)
 
 data1_model$residuals <- data1_model$ES_pcap - data1_model$predicted_ES_pcap
@@ -425,7 +463,8 @@ data1_model$residuals <- data1_model$ES_pcap - data1_model$predicted_ES_pcap
 ggplot(data1_model, aes(x = ES_pcap, y = predicted_ES_pcap, color = country_name)) +
   geom_point(alpha = 0.5) +
   geom_abline(slope = 1, intercept = 0, color = "red") +
-  labs(title = "Actual vs Predicted ES_pcap", x = "Actual", y = "Predicted")
+  labs(title = "Actual vs Predicted ES_pcap", x = "Actual", y = "Predicted") +
+  theme(legend.position = "none")
 
 ggplot(data1_model, aes(x = year, y = residuals, color = country_name)) +
   geom_point() +
@@ -493,7 +532,7 @@ head(future_data)
 
 ### Want all data
 
-predictions_data <- data %>%
+predictions_data <- data %>%#data %>%
   # Set lag_ES_pcap to NA for year >= 2024
   mutate(lag_ES_pcap = ifelse(year >= 2024, NA, lag_ES_pcap))
 
@@ -525,6 +564,8 @@ for (i in 2024:2100) {
   # Update ES_pcap in data.orig with predictions
   data.orig <- data.orig %>%
     left_join(prediction_df, by = c("country_id", "year")) %>%
+    group_by(country_id) %>%
+    arrange(country_id, year) %>%
     mutate(
       ES_pcap = if_else(!is.na(predicted_ES_pcap), predicted_ES_pcap, ES_pcap),
       lag_ES_pcap = if_else(year == i, lag(ES_pcap), lag_ES_pcap)
@@ -675,10 +716,14 @@ create_theme <- function(text_size = 14) {
   )
 }
 
+selected.libya <- future_data %>% filter(country_name == "Libya") %>%
+  select(country_name, year, d_bar, u_bar, rising_income, falling_income, lag_ES_pcap, GDP_PPP_pcap_thousands, ES_pcap)
+# Copy selected.libya to clipboard
+write.table(selected.libya, file = "clipboard", sep = "\t", row.names = FALSE, col.names = TRUE)
 
 # Incorporate actual Libya data etc.
-selected1 <- data1_model %>% select(country_name, GDP_PPP_pcap, ES_pcap, year, Hex) 
-selected2 <- future_data %>% select(country_name, GDP_PPP_pcap, ES_pcap, year, Hex)
+selected1 <- data1_model %>% ungroup() %>% select(country_name, GDP_PPP_pcap, ES_pcap, year, Hex) 
+selected2 <- future_data %>% ungroup() %>% select(country_name, GDP_PPP_pcap, ES_pcap, year, Hex)
   
 aggregated.data <- rbind(selected1, selected2)  %>%
   ungroup() %>%
@@ -752,10 +797,6 @@ ggplotly(p1 + theme(legend.position = "right"), tooltip = "text") %>%
   htmlwidgets::saveWidget(here::here("plots/predicted_ES_pcap_gately.html"), selfcontained = TRUE)
 
 ggsave(here::here("plots/predicted_ES_pcap_gately.png"), plot = p1, width = 16, height = 16, dpi = 150)
-
-
-
-
 
 
 
