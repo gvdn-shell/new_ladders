@@ -499,7 +499,8 @@ tfc.enerdem.data1 <- tfc.enerdem.data %>%
 
 #### Merge with energy service data
 all.data <- wdi.data %>%
-  left_join(enerserv.data, by = c("country_id" = "country_id", "year" = "year")) %>%
+  right_join(enerserv.data, by = c("country_id" = "country_id", "year" = "year")) %>%
+  #left_join(enerserv.data, by = c("country_id" = "country_id", "year" = "year")) %>%
   select(country_id, country_name, wem_regions, iso3c, year, SI.POV.GINI, EN.POP.DNST, SP.URB.TOTL.IN.ZS, energy_service) %>%
   mutate(energy_service = as.numeric(energy_service * 1e06)) %>% # Original units
   arrange(country_name, year) %>%

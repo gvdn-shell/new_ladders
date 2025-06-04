@@ -70,7 +70,10 @@ shell.brand.palette <- readRDS(here::here("data", "shell_brand_palette_extended.
 data <- shell.brand.palette %>%
   mutate(Hex = paste0("#", Hex)) %>%
   mutate(country_id = row_number()) %>% 
-  left_join(data , by = "country_id") #%>%
+  # Join with data but only where country_id is in both datasets
+  select(country_id, Hex) %>%
+  dplyr::distinct() %>%
+  merge(data , by = "country_id") #%>%
   #distinct()
 
 
@@ -80,7 +83,7 @@ set.seed(1234)
 data <- data %>%
   group_by(country_name) %>%
   filter(
-    sum(!is.na(Gini)) >= 2,
+    sum(!is.na(Gini_01)) >= 2,
     sum(!is.na(urbanization_perc)) >= 2,
     sum(!is.na(density_psqkm)) >= 2
   ) %>%
@@ -152,7 +155,7 @@ ggplotly(ggplot(data = data1, aes(x = GDP_PPP_pcap, y = ES_pcap, colour = Hex)) 
 ############################################################################################################################
 # Drop UAE
 
-exclude.countries <- c("Luxembourg", "United Arab Emirates")
+exclude.countries <- c("Luxembourg", "United Arab Emirates", "Qatar", "Kuwait", "Libya")
 
 data1 <- data1 %>%
   filter(!country_name %in% exclude.countries)
@@ -272,7 +275,17 @@ fit_gately_nlsLM <- nlsLM(
     theta_f = 1,
     alpha = 1e-6,
     beta_i = 1e-6
-  ),
+    ),
+  # Setting constraints
+  # lower = c(
+  #   gamma_max = 100,
+  #   lambda = -Inf,
+  #   phi = -Inf,
+  #   theta_r = -Inf,
+  #   theta_f = -Inf,
+  #   alpha = -Inf,
+  #   beta_i = -Inf
+  # ),
   na.action =  na.exclude,
   control = nls.lm.control(maxiter = 500)
 )
@@ -480,7 +493,9 @@ head(future_data)
 
 ### Want all data
 
-predictions_data <- data
+predictions_data <- data %>%
+  # Set lag_ES_pcap to NA for year >= 2024
+  mutate(lag_ES_pcap = ifelse(year >= 2024, NA, lag_ES_pcap))
 
 # Initialize
 predictions <- list()
@@ -489,103 +504,77 @@ model <- fit_gately_nlsLM  # fitted nlsLM model
 
 #######################################################################################################################
 for (i in 2024:2100) {
+  # Update lag_ES_pcap only for the current year
   data.orig <- data.orig %>%
     group_by(country_id) %>%
-    mutate(lag_ES_pcap = case_when(year == i ~ lag(ES_pcap), TRUE ~ lag_ES_pcap)) %>%
+    arrange(year) %>%
+    mutate(lag_ES_pcap = if_else(year == i, lag(ES_pcap), lag_ES_pcap)) %>%
     ungroup()
-
-  data.used <- data.orig %>% filter(year == i)
-
-  # Predict lg.trns.LFPR for year i
-  predictions.loop <- predict(model, newdata = data.used)
-  prediction_df <- data.frame(predictions.loop, data.used[c("country_id", "year")])#data.frame(predictions.loop, attr(predictions.loop, "index"))
-
-  prediction.data <- merge(data.orig, prediction_df, by = c("country", "year"), all.x = TRUE) %>%
-    group_by(country) %>%
+  
+  # Filter data for the current year
+  data.used <- filter(data.orig, year == i)
+  
+  # Predict using the model
+  predictions <- predict(model, newdata = data.used)
+  prediction_df <- data.frame(
+    country_id = data.used$country_id,
+    year = data.used$year,
+    predicted_ES_pcap = predictions
+  )
+  
+  # Update ES_pcap in data.orig with predictions
+  data.orig <- data.orig %>%
+    left_join(prediction_df, by = c("country_id", "year")) %>%
     mutate(
-      ES_pcap = case_when(year == i ~ predictions.loop, TRUE ~ lg.trns.LFPR),
-      lg.lag.trans.LFPR = case_when(year == i ~ lag(lg.trns.LFPR), TRUE ~ lg.lag.trans.LFPR)
+      ES_pcap = if_else(!is.na(predicted_ES_pcap), predicted_ES_pcap, ES_pcap),
+      lag_ES_pcap = if_else(year == i, lag(ES_pcap), lag_ES_pcap)
     ) %>%
-    select(-predictions.loop) %>%
-    ungroup()
-
-  # Update data.orig with prediction.data
-  data.orig <- prediction.data
-
-  # Store the prediction data in the list
-  predictions[[i - 2023]] <- prediction.data
+    select(-predicted_ES_pcap)
 }
 
 
-# 
-# for (i in 2023:2100) {
+predictions_data <- data.orig %>%
+  arrange(country_id, year)
+
+
+
+
+#########
+### This worked
+# for (i in 2024:2100) {
 #   data.orig <- data.orig %>%
 #     group_by(country_id) %>%
-#     mutate(lag_ES_pcap = case_when(year == i ~ lag(ES_pcap), TRUE ~ lag_ES_pcap)) %>%
+#     arrange(country_id, year) %>%
+#     mutate(lag_ES_pcap = case_when(year == i ~ dplyr::lag(ES_pcap), TRUE ~ lag_ES_pcap)) %>%
 #     ungroup()
-#   
-#   data.used <- pdata.frame(data.orig %>% filter(year == i), index = c("country", "year"))
-#   
+# 
+#   data.used <- data.orig %>% filter(year == i)
+# 
 #   # Predict lg.trns.LFPR for year i
-#   predictions.loop <- predict(panel_model, newdata = data.used)
-#   prediction_df <- data.frame(predictions.loop, attr(predictions.loop, "index"))
-#   
-#   prediction.data <- merge(data.orig, prediction_df, by = c("country", "year"), all.x = TRUE) %>%
-#     group_by(country) %>%
+#   predictions.loop <- predict(model, newdata = data.used)
+#   prediction_df <- data.frame(predictions.loop, data.used[c("country_id", "year")])#data.frame(predictions.loop, attr(predictions.loop, "index"))
+# 
+#   prediction.data <- merge(data.orig, prediction_df, by = c("country_id", "year"), all.x = TRUE) %>%
+#     group_by(country_id) %>%
+#     arrange(country_id, year) %>%
+#     #mutate(offset = ES_pcap - predictions.loop) %>%
 #     mutate(
-#       lg.trns.LFPR = case_when(year == i ~ predictions.loop, TRUE ~ lg.trns.LFPR),
-#       lg.lag.trans.LFPR = case_when(year == i ~ lag(lg.trns.LFPR), TRUE ~ lg.lag.trans.LFPR)
+#       ES_pcap = case_when(year == i ~ predictions.loop, TRUE ~ ES_pcap),
+#       lag_ES_pcap = case_when(year == i ~ dplyr::lag(ES_pcap), TRUE ~ lag_ES_pcap)
 #     ) %>%
 #     select(-predictions.loop) %>%
 #     ungroup()
-#   
+# 
 #   # Update data.orig with prediction.data
 #   data.orig <- prediction.data
-#   
+# 
 #   # Store the prediction data in the list
-#   predictions[[i - 2022]] <- prediction.data
+#   #predictions[[i - 2023]] <- prediction.data
 # }
 # 
-
-
-
-################################
-# Loop over forecast years
-for (i in 2023:2100) {
-  # Update lag_ES_pcap with previous prediction
-  data.orig <- data.orig %>%
-    group_by(country_id) %>%
-    mutate(lag_ES_pcap = case_when(year == i ~ lag(ES_pcap), TRUE ~ lag_ES_pcap)) %>%
-    ungroup()
-  
-  # Prepare data for prediction
-  data.used <- data.orig %>% filter(year == i)
-  
-  # Predict ES_pcap for year i
-  predictions.loop <- predict(model, newdata = data.used)
-  
-  # Merge predictions back into the data
-  prediction_df <- data.frame(predictions.loop, data.used[c("country_id", "year")])
-  prediction.data <- merge(data.orig, prediction_df, by = c("country_id", "year"), all.x = TRUE) %>%
-    group_by(country_id) %>%
-    mutate(
-      ES_pcap = case_when(year == i ~ predictions.loop, TRUE ~ ES_pcap),
-      lag_ES_pcap = case_when(year == i ~ lag(ES_pcap), TRUE ~ lag_ES_pcap)
-    ) %>%
-    select(-predictions.loop) %>%
-    ungroup()
-  
-  # Update original data
-  data.orig <- prediction.data
-  
-  # Store prediction
-  predictions[[i - 2022]] <- prediction.data
-}
-
-predictions_data <- bind_rows(predictions)
+# predictions_data <- data.orig#bind_rows(predictions)
 ### up to here
-
-future_data$predicted_ES_pcap <- predict(fit, newdata = future_data) #, level = 1) # level = 1 to incorporate random effects
+#future_data$predicted_ES_pcap <- predict(fit, newdata = future_data) #, level = 1) # level = 1 to incorporate random effects
 
 # Plot predicted values for future years and historical data faceted by country
 # ggplot() +
@@ -652,36 +641,111 @@ future_data$predicted_ES_pcap <- predict(fit, newdata = future_data) #, level = 
 #   )
 # }
 
-
-
-p1 <- ggplot() +
-  # Historical data
-  #geom_point(data = data1, aes(x = year, y = ES_pcap, color = country_name)) +
-  geom_line(data = data1_model, aes(x = GDP_PPP_pcap, y = ES_pcap, color = country_name, linetype = "Historical", group = country_name)) +
-  
-  # Future predictions
-  #geom_point(data = future_data, aes(x = year, y = predicted_ES_pcap, color = country_name)) +
-  geom_line(data = future_data, aes(x = GDP_PPP_pcap, y = predicted_ES_pcap, color = country_name, linetype = "Predicted", group = country_name)) +
-  
-  #facet_wrap(~ country_name, scales = "fixed") +
-  # Display country_name label next to line
-  #geom_text(data = future_data %>% filter(year == max(year)-5), aes(x = year, y = predicted_ES_pcap, label = country_name), hjust = -0.1, size = 2) +
-  scale_linetype_manual(values = c("Historical" = "solid", "Predicted" = "dashed")) +
-  labs(title = "Predicted Energy Service per Capita using Additive Logistic Model",
-       x = "GDP per capita (USD)",
-       y = "Energy Service per Capita (passenger km / capita)",
-       linetype = "Data Type") +
-  theme_bw()  + create_theme(30) +
-  # Format x-axis which is GDP at level, but want to make it in thousands
-  scale_x_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k")) +
-  scale_y_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k")) +
-  theme(
-    plot.title = element_text(hjust = 0.5),
-    legend.position = "none"
+future_data <- predictions_data %>%
+  filter(year >= 2024) %>%
+  mutate(
+    predicted_ES_pcap = ES_pcap
   )
 
+
+################################################################################################################################
+create_theme <- function(text_size = 14) {
+  theme(
+    axis.title.y = element_text(size = text_size, family = "ShellMedium, sans"),
+    axis.title.x = element_text(size = text_size, family = "ShellMedium, sans"),
+    axis.text.y = element_text(size = text_size - 2, family = "ShellMedium, sans"),
+    axis.text.x = element_text(size = text_size - 2, family = "ShellMedium, sans", angle = 45, hjust = 1),
+    legend.position = c(1.05, 0.9),
+    legend.text = element_text(size = text_size - 2, family = "ShellMedium, sans"),
+    legend.title = element_blank(),
+    legend.background = element_rect(fill = "transparent", color = NA),
+    legend.key = element_rect(fill = "transparent", color = NA),
+    plot.background = element_rect(fill = "transparent", color = NA),
+    panel.background = element_rect(fill = "transparent", color = NA),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(size = text_size, family = "ShellMedium, sans", hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5, size = text_size - 4, family = "ShellMedium, sans"),
+    plot.caption = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.ticks.length = unit(0.25, "cm"),
+    panel.border = element_rect(color = "black", fill = NA),
+    plot.margin = margin(t = 10, r = 10, b = 10, l = 10)
+  )
+}
+
+
+# Incorporate actual Libya data etc.
+selected1 <- data1_model %>% select(country_name, GDP_PPP_pcap, ES_pcap, year, Hex) 
+selected2 <- future_data %>% select(country_name, GDP_PPP_pcap, ES_pcap, year, Hex)
+  
+aggregated.data <- rbind(selected1, selected2)  %>%
+  ungroup() %>%
+  arrange(country_name, year) %>%
+  mutate(line_type = if_else(year <= 2023, "Historical", "Predicted"))
+
+# Split the data
+historical_data <- aggregated.data %>% filter(line_type == "Historical")
+predicted_data  <- aggregated.data %>% filter(line_type == "Predicted")
+
+
+# Create a named vector of colors
+country_colors <- historical_data %>%
+  select(country_name, Hex) %>%
+  distinct()
+
+country_colors <- setNames(country_colors$Hex, country_colors$country_name)
+# creates a named vector: names = country_name, values = Hex
+
+p1 <- ggplot() +
+  geom_line(
+    data = historical_data,
+    aes(
+      x = GDP_PPP_pcap,
+      y = ES_pcap,
+      color = country_name,
+      group = country_name,
+      text = paste(
+        "Country:", country_name,
+        "<br>Year:", year,
+        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+        "<br>ES per capita:", scales::comma(ES_pcap)
+      )
+    ),
+    linetype = "solid"
+  ) +
+  geom_line(
+    data = predicted_data,
+    aes(
+      x = GDP_PPP_pcap,
+      y = ES_pcap,
+      color = country_name,
+      group = country_name,
+      text = paste(
+        "Country:", country_name,
+        "<br>Year:", year,
+        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+        "<br>ES per capita:", scales::comma(ES_pcap)
+      )
+    ),
+    linetype = "dashed"
+  ) +
+  scale_color_manual(values = country_colors) +
+  labs(
+    title = "Predicted Energy Service per Capita using Gately Model",
+    x = "GDP per capita (USD)",
+    y = "Energy Service per Capita (passenger km / capita)",
+    color = "Country",
+    linetype = "Data Type"
+  ) +
+  theme_minimal() +
+  create_theme(16) +
+  scale_x_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k")) +
+  scale_y_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k"))
+
 # Save to interactive html widget
-ggplotly(p1 + theme(legend.position = "right")) %>%
+ggplotly(p1 + theme(legend.position = "right"), tooltip = "text") %>%
   #layout(title = "Predicted Energy Service per Capita using Additive Logistic Model",
   #       xaxis = list(title = "GDP per capita (USD)"),
   #       yaxis = list(title = "Energy Service per Capita (passenger km / capita)")) %>%
@@ -689,331 +753,13 @@ ggplotly(p1 + theme(legend.position = "right")) %>%
 
 ggsave(here::here("plots/predicted_ES_pcap_gately.png"), plot = p1, width = 16, height = 16, dpi = 150)
 
-###############################################################
-### Multiplicative Logistic
-
-fit <- fit2
-
-# Predictions from model:
-data1_model <- data1[complete.cases(data1[, c("ES_pcap", "GDP_PPP_pcap", "Gini")]), ]
-
-data1_model$predicted_ES_pcap <- predict(fit, newdata = data1_model)
-# Step 1: Create a copy of the data used in model fitting (after NA removal)
-
-data1_model$residuals <- data1_model$ES_pcap - data1_model$predicted_ES_pcap
-
-####### Displaying Output
-# Extract random effects
-random_effects <- ranef(fit)
-
-# Convert to a tidy format
-random_df <- random_effects %>%
-  tibble::rownames_to_column("country_name") %>%
-  tidyr::pivot_longer(-country_name, names_to = "term", values_to = "estimate") %>%
-  mutate(effect_type = "Random")
-
-# Extract fixed effects
-fixed_df <- broom::tidy(fit) %>%
-  mutate(effect_type = "Fixed")
-
-# Combine both
-combined_df <- bind_rows(fixed_df, random_df)
-
-# Create a GT table
-gt(combined_df) %>%
-  tab_header(title = "Fixed and Random Effects from Nonlinear Mixed-Effects Model") %>%
-  cols_label(
-    country_name = "Country",
-    term = "Parameter",
-    estimate = "Estimate",
-    effect_type = "Effect Type"
-  ) %>%
-  fmt_number(columns = "estimate", decimals = 3)
 
 
-# plot predicted versus actual values
-ggplot(data1_model, aes(x = year, y = ES_pcap)) +
-  geom_point() +
-  geom_line() +
-  # Add another geom of point and line for predicted_ES_pcap
-  geom_point(aes(y = predicted_ES_pcap), color = "red") +
-  geom_line(aes(y = predicted_ES_pcap), color = "red") +
-  # facet by country
-  facet_wrap(~ country_name, scales = "free") +
-  #geom_abline(slope = 1, intercept = 0, color = "red") +
-  #geom_smooth(method = "lm", se = FALSE) +
-  labs(title = "Predicted vs Actual Energy Service per Capita",
-       x = "Predicted Energy Service per Capita",
-       y = "Actual Energy Service per Capita") +
-  theme_minimal()
 
 
-# Including random effects for known countries
-future_data <- data %>%
-  filter(#country_id <= 15 & 
-    year > 2024)
 
 
-future_data$predicted_ES_pcap <- predict(fit, newdata = future_data, level = 1) # level = 1 to incorporate random effects
-
-p2 <- ggplot() +
-  # Historical data
-  #geom_point(data = data1, aes(x = year, y = ES_pcap, color = country_name)) +
-  geom_line(data = data1_model, aes(x = GDP_PPP_pcap, y = ES_pcap, color = country_name, linetype = "Historical", group = country_name)) +
-  
-  # Future predictions
-  #geom_point(data = future_data, aes(x = year, y = predicted_ES_pcap, color = country_name)) +
-  geom_line(data = future_data, aes(x = GDP_PPP_pcap, y = predicted_ES_pcap, color = country_name, linetype = "Predicted", group = country_name)) +
-  
-  #facet_wrap(~ country_name, scales = "fixed") +
-  # Display country_name label next to line
-  #geom_text(data = future_data %>% filter(year == max(year)-5), aes(x = year, y = predicted_ES_pcap, label = country_name), hjust = -0.1, size = 2) +
-  scale_linetype_manual(values = c("Historical" = "solid", "Predicted" = "dashed")) +
-  labs(title = "Predicted Energy Service per Capita using Multiplicative Logistic Model",
-       x = "GDP per capita (USD)",
-       y = "Energy Service per Capita (passenger km / capita)",
-       linetype = "Data Type") +
-  theme_bw()  + create_theme(30) +
-  # Format x-axis which is GDP at level, but want to make it in thousands
-  scale_x_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k")) +
-  scale_y_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k")) +
-  theme(
-    plot.title = element_text(hjust = 0.5),
-    legend.position = "none"
-  )
-
-# Save to interactive html widget
-ggplotly(p2+ theme(legend.position = "right")) %>%
-  layout(title = "Predicted Energy Service per Capita using Multiplicative Logistic Model",
-         xaxis = list(title = "GDP per capita (USD)"),
-         yaxis = list(title = "Energy Service per Capita (passenger km / capita)")) %>%
-  htmlwidgets::saveWidget(here::here("plots/predicted_ES_pcap_logistic2.html"), selfcontained = TRUE)
-
-ggsave(here::here("plots/predicted_ES_pcap_logistic2.png"), plot = p2, width = 16, height = 16, dpi = 150)
-
-###############################################################
-### Interaction Logistic
-
-fit <- fit3
-
-# Predictions from model:
-data1_model <- data1[complete.cases(data1[, c("ES_pcap", "GDP_PPP_pcap", "Gini")]), ]
-
-data1_model$predicted_ES_pcap <- predict(fit, newdata = data1_model)
-# Step 1: Create a copy of the data used in model fitting (after NA removal)
-
-data1_model$residuals <- data1_model$ES_pcap - data1_model$predicted_ES_pcap
-
-####### Displaying Output
-# Extract random effects
-random_effects <- ranef(fit)
-
-# Convert to a tidy format
-random_df <- random_effects %>%
-  tibble::rownames_to_column("country_name") %>%
-  tidyr::pivot_longer(-country_name, names_to = "term", values_to = "estimate") %>%
-  mutate(effect_type = "Random")
-
-# Extract fixed effects
-fixed_df <- broom::tidy(fit) %>%
-  mutate(effect_type = "Fixed")
-
-# Combine both
-combined_df <- bind_rows(fixed_df, random_df)
-
-# Create a GT table
-gt(combined_df) %>%
-  tab_header(title = "Fixed and Random Effects from Nonlinear Mixed-Effects Model") %>%
-  cols_label(
-    country_name = "Country",
-    term = "Parameter",
-    estimate = "Estimate",
-    effect_type = "Effect Type"
-  ) %>%
-  fmt_number(columns = "estimate", decimals = 3)
 
 
-# plot predicted versus actual values
-ggplot(data1_model, aes(x = year, y = ES_pcap)) +
-  geom_point() +
-  geom_line() +
-  # Add another geom of point and line for predicted_ES_pcap
-  geom_point(aes(y = predicted_ES_pcap), color = "red") +
-  geom_line(aes(y = predicted_ES_pcap), color = "red") +
-  # facet by country
-  facet_wrap(~ country_name, scales = "free") +
-  #geom_abline(slope = 1, intercept = 0, color = "red") +
-  #geom_smooth(method = "lm", se = FALSE) +
-  labs(title = "Predicted vs Actual Energy Service per Capita",
-       x = "Predicted Energy Service per Capita",
-       y = "Actual Energy Service per Capita") +
-  theme_minimal()
 
 
-# Including random effects for known countries
-future_data <- data %>%
-  filter(#country_id <= 15 & 
-    year > 2024)
-
-
-future_data$predicted_ES_pcap <- predict(fit, newdata = future_data, level = 1) # level = 1 to incorporate random effects
-
-p3 <- ggplot() +
-  # Historical data
-  #geom_point(data = data1, aes(x = year, y = ES_pcap, color = country_name)) +
-  geom_line(data = data1_model, aes(x = GDP_PPP_pcap, y = ES_pcap, color = country_name, linetype = "Historical", group = country_name)) +
-  
-  # Future predictions
-  #geom_point(data = future_data, aes(x = year, y = predicted_ES_pcap, color = country_name)) +
-  geom_line(data = future_data, aes(x = GDP_PPP_pcap, y = predicted_ES_pcap, color = country_name, linetype = "Predicted", group = country_name)) +
-  
-  #facet_wrap(~ country_name, scales = "fixed") +
-  # Display country_name label next to line
-  #geom_text(data = future_data %>% filter(year == max(year)-5), aes(x = year, y = predicted_ES_pcap, label = country_name), hjust = -0.1, size = 2) +
-  scale_linetype_manual(values = c("Historical" = "solid", "Predicted" = "dashed")) +
-  labs(title = "Predicted Energy Service per Capita using Interaction Logistic Model",
-       x = "GDP per capita (USD)",
-       y = "Energy Service per Capita (passenger km / capita)",
-       linetype = "Data Type") +
-  theme_bw()  + create_theme(30) +
-  # Format x-axis which is GDP at level, but want to make it in thousands
-  scale_x_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k")) +
-  scale_y_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k")) +
-  theme(
-    plot.title = element_text(hjust = 0.5),
-    legend.position = "none"
-  )
-
-# Save to interactive html widget
-ggplotly(p3 + theme(legend.position = "right")) %>%
-  layout(title = "Predicted Energy Service per Capita using Interaction Logistic Model",
-         xaxis = list(title = "GDP per capita (USD)"),
-         yaxis = list(title = "Energy Service per Capita (passenger km / capita)")) %>%
-  htmlwidgets::saveWidget(here::here("plots/predicted_ES_pcap_logistic3.html"), selfcontained = TRUE)
-
-ggsave(here::here("plots/predicted_ES_pcap_logistic3.png"), plot = p3, width = 16, height = 16, dpi = 150)
-
-###########################################################################################
-### Baseline adjustments
-# Making adjustments
-# Incorporate last historical value as baseline
-
-# baseline <- data %>%
-#   filter(country_id <= 15 & year == 2024) %>%
-#   select(country_name, GDP_PPP_pcap, ES_pcap_2024 = ES_pcap)
-# 
-# 
-# # Get 2025 predicted values to compute adjustment
-# first_pred <- future_data %>%
-#   filter(country_id <= 15 & year == 2025) %>%
-#   select(country_name, GDP_PPP_pcap, predicted_2025 = predicted_ES_pcap)
-# 
-# 
-# # Join and compute adjustment
-# adjustments <- baseline %>%
-#   inner_join(first_pred, by = "country_name") %>%
-#   mutate(adjustment = ES_pcap_2024 - predicted_2025)
-# 
-# 
-# # Apply adjustment to all future years
-# future_data <- future_data %>%
-#   left_join(adjustments %>% select(country_name, adjustment), by = "country_name") %>%
-#   mutate(adjusted_ES_pcap = predicted_ES_pcap + adjustment)
-
-##################################################################################################################################
-#####
-# Model diagnostics
-# 
-# data1$fitted <- fitted(fit)
-# data1$residuals <- residuals(fit)
-# 
-# # Residuals versus fitted plot
-# 
-# 
-# ggplot(data1, aes(x = fitted, y = residuals, color = country_name)) +
-#   geom_point(alpha = 0.6) +
-#   facet_wrap(~ country_name, scales = "free") +
-#   geom_hline(yintercept = 0, linetype = "dashed") +
-#   labs(title = "Residuals vs Fitted Values",
-#        x = "Fitted Values",
-#        y = "Residuals") +
-#   theme_minimal()
-# 
-# 
-# 
-# qqnorm(data1$residuals)
-# qqline(data1$residuals, col = "red")
-# 
-# 
-# # Fitted versus observed plot
-# 
-# ggplot(data1, aes(x = fitted, y = ES_pcap, color = country_name)) +
-#   geom_point(alpha = 0.6) +
-#   facet_wrap(~ country_name, scales = "free") +
-#   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
-#   labs(title = "Fitted vs Observed Values",
-#        x = "Fitted Values",
-#        y = "Observed ES_pcap") +
-#   theme_minimal()
-# 
-# # Breusch-Pagan test for Heteroscedasticity
-# 
-# bp_test <- lm(residuals^2 ~ fitted, data = data1)
-# summary(bp_test)
-# 
-# 
-# # Evidence of heteroskedasticity
-# fit_weighted <- update(fit, weights = varPower())
-# 
-# 
-# AIC(fit, fit_weighted)
-# BIC(fit, fit_weighted)
-# 
-# # Extract residuals and fitted values
-# 
-# 
-# data1$fitted_original <- fitted(fit)
-# data1$residuals_original <- resid(fit)
-# # 
-# # data1$fitted_weighted <- fitted(fit_weighted)
-# # data1$residuals_weighted <- resid(fit_weighted)
-# 
-# 
-# # Extract the data actually used in the model
-# model_data <- getData(fit_weighted)
-# 
-# # Add fitted and residuals to that data
-# model_data$fitted_weighted <- fitted(fit_weighted)
-# model_data$residuals_weighted <- resid(fit_weighted)
-# 
-# model_data$row_id <- as.integer(rownames(model_data))
-# data1$row_id <- as.integer(rownames(data1))
-# 
-# data1 <- left_join(data1, model_data %>% select(row_id, fitted_weighted, residuals_weighted), by = "row_id")
-# 
-# # Original
-# p1 <- ggplot(data1, aes(x = fitted_original, y = residuals_original)) +
-#   geom_point(alpha = 0.6) +
-#   facet_wrap(~ country_name, scales = "free") +
-#   geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-#   labs(title = "Residuals vs Fitted (Original Model)")
-# 
-# # Weighted
-# p2 <- ggplot(data1, aes(x = fitted_weighted, y = residuals_weighted)) +
-#   geom_point(alpha = 0.6) +
-#   facet_wrap(~ country_name, scales = "free") +
-#   geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-#   labs(title = "Residuals vs Fitted (Weighted Model)")
-# 
-# # Display side by side
-# library(patchwork)
-# p1 + p2
-# 
-# 
-# qqnorm(data1$residuals_original); qqline(data1$residuals_original, col = "red")
-# qqnorm(data1$residuals_weighted); qqline(data1$residuals_weighted, col = "red")
-# 
-# 
-# 
-# 
-# # saveRDS(all.country.mappings, here::here("data", "all_country_mappings.rds"))
