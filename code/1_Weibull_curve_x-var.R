@@ -251,6 +251,16 @@ weibull_model_2 <- deriv(
   function.arg = c("density_psqkm", "Gini", "GDP_PPP_pcap", "alpha_0", "alpha_1", "k", "lambda", "gamma")
 )
 
+weibull_model_3 <- deriv(
+  ~ (alpha_0 + alpha_1 * density_psqkm + alpha_2 * lag_ES_pcap) * 
+    k / exp(gamma + lambda * Gini) * 
+    (GDP_PPP_pcap / exp(gamma + lambda * Gini))^(k - 1) * 
+    exp(-(GDP_PPP_pcap / exp(gamma + lambda * Gini))^k),
+  namevec = c("alpha_0", "alpha_1", "alpha_2", "k", "lambda", "gamma"),
+  function.arg = c("density_psqkm", "Gini", "GDP_PPP_pcap", "lag_ES_pcap", "alpha_0", "alpha_1", "alpha_2", "k", "lambda", "gamma")
+)
+
+
 # # Set fixed parameter values
 # alpha_0 <- 0.5
 # alpha_1 <- 0.01
@@ -356,6 +366,36 @@ fit_gately_nlsLM <- nlsLM(
   na.action =  na.exclude,
   control = nls.lm.control(maxiter = 500)
 )
+
+summary(fit_gately_nlsLM)
+
+# Weibull 3
+# Define the updated function with lag_ES_pcap
+# Fit the model using nlsLM
+fit_gately_nlsLM <- nlsLM(
+  ES_pcap ~ weibull_model_3(density_psqkm, Gini_01, GDP_PPP_pcap_thousands, lag_ES_pcap,
+                            alpha_0, alpha_1, alpha_2, k, lambda, gamma),
+  data = data1,
+  start = c(
+    alpha_0 = 1000,
+    alpha_1 = 0,
+    alpha_2 = 0,
+    k = 1,
+    lambda = 1,
+    gamma = 1
+  ),
+  lower = c(
+    alpha_0 = -Inf,
+    alpha_1 = -Inf,
+    alpha_2 = -Inf,
+    k = 0,
+    lambda = 0,
+    gamma = 0
+  ),
+  na.action = na.exclude,
+  control = nls.lm.control(maxiter = 500)
+)
+
 
 summary(fit_gately_nlsLM)
 # library(minpack.lm)
