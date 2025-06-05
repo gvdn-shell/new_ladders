@@ -206,6 +206,216 @@ gately_model <- deriv(
   function.arg = c("GDP_PPP_pcap", "d_bar", "u_bar", "rising_income", "falling_income", "lag_ES_pcap", "gamma_max", "lambda", "phi", "theta_r", "theta_f", "alpha", "beta_i")
 )
 
+multiple_logistic_model <- deriv(
+  ~ (a0 + a1 * density_psqkm) / (1 + exp((xmid - GDP_PPP_pcap) / scal)),
+  namevec = c("a0", "a1", "xmid", "scal"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "a0", "a1", "xmid", "scal")
+)
+
+multiple_logistic_model2 <- deriv(
+  ~ (a0 + a1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap) / scal))) ^ (g0 + g1 * Gini),
+  namevec = c("a0", "a1", "xmid", "scal", "g0","g1"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "a0", "a1", "xmid", "scal", "g0","g1","Gini")
+)
+
+multiple_logistic_model3 <- deriv(
+  ~ (a0 + a1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap) / scal))) ^ (g1 * Gini),
+  namevec = c("a0", "a1", "xmid", "scal", "g1"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "a0", "a1", "xmid", "scal", "g1","Gini")
+)
+
+multiple_logistic_model4 <- deriv(
+  ~ (a0 + a1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap) / scal))) ^ (g0 + g1 * Gini),
+  namevec = c("a0", "a1", "xmid", "scal", "g0", "g1"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "a0", "a1", "xmid", "scal", "g0", "g1", "Gini")
+)
+
+multiple_logistic_model5 <- deriv(
+  ~ Asym * (1 / (1 + exp((xmid - GDP_PPP_pcap) / scal))) * exp(g0 * exp (g1 * Gini)),
+  namevec = c("Asym", "xmid", "scal", "g0", "g1"),
+  function.arg = c("GDP_PPP_pcap", "Asym","xmid", "scal", "g0", "g1", "Gini")
+)
+
+
+########################
+
+# Define the function using deriv
+weibull_model_1 <- deriv(
+  ~ (alpha_0 + alpha_1 * density_psqkm) * (k * Gini) / lambda * 
+    (GDP_PPP_pcap / lambda)^(k * Gini - 1) * 
+    exp(-(GDP_PPP_pcap / lambda)^(k * Gini)),
+  namevec = c("alpha_0", "alpha_1", "k", "lambda"),
+  function.arg = c("density_psqkm", "Gini", "GDP_PPP_pcap", "alpha_0", "alpha_1", "k", "lambda")
+)
+
+# Set fixed parameter values
+alpha_0 <- 0.5
+alpha_1 <- 0.01
+k <- 1.5
+lambda <- 10000
+Gini <- 0.4
+
+# Create a grid of values
+density_vals <- seq(0, 1000, length.out = 50)
+gdp_vals <- seq(1000, 50000, length.out = 50)
+
+# Create a matrix to hold results
+z_vals <- outer(density_vals, gdp_vals, Vectorize(function(d, gdp) {
+  weibull_model_1(d, Gini, gdp, alpha_0, alpha_1, k, lambda)[[1]]
+}))
+
+# Plot the surface
+persp(density_vals, gdp_vals, z_vals,
+      xlab = "Population Density (per sq km)",
+      ylab = "GDP PPP per Capita",
+      zlab = "Function Value",
+      theta = 30, phi = 30, expand = 0.5, col = "lightblue")
+###############################################################
+#############################################################################################################
+#### Logistic function and iterations
+#### In specifying random effects, let ones you suspect to be most stable estimated first
+#############################################################################################################
+# Additive effect of Gini -f believe a direct contributor to ES_pcap
+
+multiple_logistic_model_6 <- deriv(
+  ~ (a0 + a1 * density_psqkm + a2 * Gini) / (1 + exp((xmid - GDP_PPP_pcap) / scal)),
+  namevec = c("a0", "a1", "a2", "xmid", "scal"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "a0", "a1", "a2", "xmid", "scal")
+)
+
+fit1 <- nlme(
+  ES_pcap ~ multiple_logistic_model_6(GDP_PPP_pcap, density_psqkm, Gini, a0, a1, a2, xmid, scal),
+  data = data1,
+  fixed = a0 + a1 + a2 + xmid + scal ~ 1,
+  #random = xmid + a2 ~ 1 | country_name, # This was done
+  random = xmid + scal  ~ 1 | country_name,
+  #random = xmid + a1 ~ 1 | country_name,
+  #random = xmid ~ 1 | country_name,
+  start = c(a0 = 5000, a1 = 10, a2 = 2, xmid = 10000, scal = 1000),
+  #correlation = corARMA(p = 1, q = 2, form = ~ year | country_name),,  # <-- this models autocorrelation
+  na.action = na.exclude, #na.exclude to retain original number of rows
+  control = nlmeControl(pnlsTol = 0.5, maxIter = 500, minFactor = 1e-10, msMaxIter = 500, warnOnly = TRUE)
+  #control = nlmeControl(pnlsTol = 0.1, maxIter = 100)
+)
+
+summary(fit1)
+
+
+# Multiplicative effect of Gini - if believe inequality amplifies or dampens the effect of income
+# and popilation density on ES_pcap - modulates the overall level of ES_pcap
+# multiple_logistic_model_7 <- deriv(
+#   ~ ((a0 + a1 * density_psqkm) / (1 + exp((xmid - GDP_PPP_pcap) / scal))) * exp(b0 + b1 * Gini),
+#   namevec = c("a0", "a1", "xmid", "scal", "b0", "b1"),
+#   function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "a0", "a1", "xmid", "scal", "b0", "b1")
+# )
+
+multiple_logistic_model_7 <- deriv(
+  ~ ((a0 + a1 * density_psqkm) / (1 + exp((xmid - GDP_PPP_pcap) / scal))) * exp(b1 * Gini),
+  namevec = c("a0", "a1", "xmid", "scal", "b1"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "a0", "a1", "xmid", "scal", "b1")
+)
+
+fit2a <- nls(
+  ES_pcap ~ multiple_logistic_model_7(GDP_PPP_pcap, density_psqkm, Gini, a0, a1, xmid, scal, b1),
+  data = data1,
+  #fixed = a0 + a1 + xmid + scal + b0 + b1 ~ 1,
+  #random = pdDiag(~ 1 | country_name),
+  #random =  xmid ~ 1 | country_name,
+  start = c(a0 = 5000, a1 = 10, xmid = 10000, scal = 1000, b1 = 0.001),
+  na.action = na.exclude, #na.exclude to retain original number of rows
+  control = nlmeControl(pnlsTol = 0.5, maxIter = 200, minFactor = 1e-10, msMaxIter = 200, warnOnly = TRUE)
+)
+
+summary(fit2a)
+
+fit2 <- nlme(
+  ES_pcap ~ multiple_logistic_model_7(GDP_PPP_pcap, density_psqkm, Gini, a0, a1, xmid, scal, b1),
+  data = data1,
+  fixed = a0 + a1 + xmid + scal + b1 ~ 1,
+  random =  xmid + scal ~ 1 | country_name,
+  #random =  xmid + b1 ~ 1 | country_name,
+  start = c(a0 = 5000, a1 = 10, xmid = 10000, scal = 1000, b1 = 0.001),
+  na.action = na.exclude, #na.exclude to retain original number of rows
+  control = nlmeControl(pnlsTol = 0.5, maxIter = 500, minFactor = 1e-10, msMaxIter = 500, warnOnly = TRUE)
+)
+
+summary(fit2)
+
+# Checking Variation of Gini within groups:
+aggregate(Gini ~ country_name, data = data1, FUN = function(x) length(unique(x)))
+
+# Check stability of outcomes
+# with(data1, {
+#   y_hat <- ((5000 + 10 * density_psqkm) / (1 + exp((10000 - GDP_PPP_pcap) / 1000))) * exp(1 + 0.001 * Gini)
+#   summary(y_hat)
+# })
+
+# Interaction effect of Gini - modifies the effect of GDP - changes the steepens of the logistic
+# curve based on inequality - changes how GDP affects ES_pcap
+multiple_logistic_model_8 <- deriv(
+  ~ (a0 + a1 * density_psqkm) / (1 + exp((xmid - GDP_PPP_pcap) / (scal + a2 * Gini))),
+  namevec = c("a0", "a1", "a2", "xmid", "scal"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "a0", "a1", "a2", "xmid", "scal")
+)
+
+fit3 <- nlme(
+  ES_pcap ~ multiple_logistic_model_8(GDP_PPP_pcap, density_psqkm, Gini, a0, a1, a2, xmid, scal),
+  data = data1,
+  fixed = a0 + a1 + a2 + xmid + scal ~ 1,
+  #random = pdDiag(~ 1 | country_name),
+  random =  xmid + a2 ~ 1 | country_name, # This was chosen
+  #random =  xmid ~ 1 | country_name,
+  start = c(a0 = 50000, a1 = -80, a2 = -400, xmid = 50000, scal = 50000),
+  na.action = na.exclude, #na.exclude to retain original number of rows
+  #control = nls.control(maxiter = 5000, minFactor = 1e-10, warnOnly = TRUE)
+  control = nlmeControl(pnlsTol = 0.5, maxIter = 500, minFactor = 1e-10, msMaxIter = 500, warnOnly = TRUE)
+)
+
+summary(fit3)
+##############################################################################################################
+
+# # Set fixed parameter values
+# alpha_0 <- 0.5
+# alpha_1 <- 0.01
+# k <- 1.5
+# lambda <- 0.1
+# gamma <- 0.2
+# Gini <- 0.4  # Fixed input value for this plot
+# 
+# # Create a grid of input values
+# density_vals <- seq(0, 1000, length.out = 50)
+# gdp_vals <- seq(1000, 50000, length.out = 50)
+# 
+# # Evaluate the function over the grid
+# z_vals <- outer(density_vals, gdp_vals, Vectorize(function(d, gdp) {
+#   val <- tryCatch(
+#     weibull_model_2(d, Gini, gdp, alpha_0, alpha_1, k, lambda, gamma)[[1]],
+#     error = function(e) NA
+#   )
+#   if (!is.finite(val)) NA else val
+# }))
+# 
+# # Clean z_vals: replace non-finite values with NA
+# z_vals[!is.finite(z_vals)] <- NA
+# 
+# # Remove rows and columns that are entirely NA
+# valid_rows <- apply(z_vals, 1, function(row) any(!is.na(row)))
+# valid_cols <- apply(z_vals, 2, function(col) any(!is.na(col)))
+# 
+# z_vals_clean <- z_vals[valid_rows, valid_cols]
+# density_vals_clean <- density_vals[valid_rows]
+# gdp_vals_clean <- gdp_vals[valid_cols]
+# 
+# # Plot the cleaned surface
+# persp(density_vals_clean, gdp_vals_clean, z_vals_clean,
+#       xlab = "Population Density (per sq km)",
+#       ylab = "GDP PPP per Capita",
+#       zlab = "Function Value",
+#       theta = 30, phi = 30, expand = 0.5, col = "lightblue", ticktype = "detailed")
+
+
+###############################################################
+
 summary(data1)
 sapply(data1, function(x) sum(!is.finite(x)))
 
@@ -219,151 +429,77 @@ sapply(data1, function(x) sum(!is.finite(x)))
 library(car)
 alias(lm(ES_pcap ~ GDP_PPP_pcap_thousands + d_bar + u_bar + rising_income + falling_income + lag_ES_pcap, data = data1))
 
-# # 1. Define the grid of starting values
-# start_grid <- expand.grid(
-#   gamma_max = c(500, 1000, 1500),
-#   lambda = c(-1, 0, 1),
-#   phi = c(-1, 0, 1),
-#   theta_r = c(0.5, 1),
-#   theta_f = c(0.5, 1),
-#   alpha = c(0.0001, 0.001),
-#   beta_i = c(0.0001, 0.001)
-# )
-# 
-# # 2. Run the grid search
-# results <- list()
-# for (i in 1:nrow(start_grid)) {
-#   start_vals <- as.list(start_grid[i, ])
-#   cat("Trying combination", i, "of", nrow(start_grid), "\n")
-#   tryCatch({
-#     fit <- nls(
-#       ES_pcap ~ gately_model(GDP_PPP_pcap_thousands, d_bar, u_bar, rising_income, falling_income, lag_ES_pcap,
-#                              gamma_max, lambda, phi, theta_r, theta_f, alpha, beta_i),
-#       data = data1,
-#       start = start_vals,
-#       control = nls.control(maxiter = 200, warnOnly = TRUE)
-#     )
-#     results[[i]] <- list(success = TRUE, fit = fit, start = start_vals, rss = sum(resid(fit)^2))
-#   }, error = function(e) {
-#     results[[i]] <- list(success = FALSE, error = e$message, start = start_vals)
-#   })
-# }
-# 
-# # 3. Filter successful fits
-# successful_fits <- Filter(function(x) x$success, results)
-# 
-# # 4. Extract RSS values safely
-# rss_values <- sapply(successful_fits, function(x) {
-#   if (is.numeric(x$rss)) x$rss else NA
-# })
-# 
-# # 5. Identify the best fit
-# best_index <- which.min(rss_values)
-# best_fit <- successful_fits[[best_index]]
-# 
-# # 6. Show summary of the best model
-# summary(best_fit$fit)
-
-
-# 
-# fit_gately_nls <- nls(
-#   ES_pcap ~ gately_model(GDP_PPP_pcap_thousands, d_bar, u_bar, rising_income, falling_income, lag_ES_pcap, gamma_max, lambda, phi, theta_r, theta_f, alpha, beta_i),
-#   data = data1,
-#   #fixed = a0 + a1 + xmid + scal + b0 + b1 ~ 1,
-#   #random = pdDiag(~ 1 | country_name),
-#   #random =  xmid ~ 1 | country_name,
-#   start = c(gamma_max = 1000, lambda = 0, phi = 0, theta_r = 1, theta_f = 1, alpha = 0.001, beta_i = 0.001),
-#   na.action = na.exclude, #na.exclude to retain original number of rows
-#   control = nls.control(
-#     maxiter = 1000,       # Increase max iterations
-#     tol = 1e-6,           # Tolerance for convergence (smaller = more precise)
-#     minFactor = 1e-12,    # Minimum step factor (helps with small parameter updates)
-#     printEval = TRUE,     # Print evaluation progress (optional, for debugging)
-#     warnOnly = TRUE       # Prevents stopping on warnings
-#   )
-# )
-
-test_vals <- with(data1, gately_model(GDP_PPP_pcap_thousands, d_bar, u_bar, rising_income, falling_income, lag_ES_pcap, 
-                                      gamma_max = 1000, lambda = 0, phi = 0, theta_r = 1, theta_f = 1, alpha = 1e-6, beta_i = 1e-6))
-summary(test_vals)
-
 
 library(minpack.lm)
+
+multiple_logistic_model_7 <- deriv(
+  ~ ((a0 + a1 * density_psqkm) / (1 + exp((xmid - GDP_PPP_pcap) / scal))) * exp(b1 * Gini),
+  namevec = c("a0", "a1", "xmid", "scal", "b1"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "a0", "a1", "xmid", "scal", "b1")
+)
+
+fit2a <- nls(
+  ES_pcap ~ multiple_logistic_model_7(GDP_PPP_pcap_thousands, density_psqkm, Gini_01, a0, a1, xmid, scal, b1),
+  data = data1,
+  #fixed = a0 + a1 + xmid + scal + b0 + b1 ~ 1,
+  #random = pdDiag(~ 1 | country_name),
+  #random =  xmid ~ 1 | country_name,
+  start = c(a0 = 5000, a1 = -1, xmid = 25, scal = 10, b1 = -0.1),
+  na.action = na.exclude, #na.exclude to retain original number of rows
+  control = nlmeControl(pnlsTol = 0.5, maxIter = 200, minFactor = 1e-10, msMaxIter = 200, warnOnly = TRUE)
+)
+
+summary(fit2a)
+
+
 fit_gately_nlsLM <- nlsLM(
-  ES_pcap ~ gately_model(GDP_PPP_pcap_thousands, d_bar, u_bar, rising_income, falling_income, lag_ES_pcap, gamma_max, lambda, phi, theta_r, theta_f, alpha, beta_i),
+  ES_pcap ~ multiple_logistic_model_7(GDP_PPP_pcap_thousands, density_psqkm, Gini_01, a0, a1, xmid, scal, b1),
   data = data1,
   start = c(
-    gamma_max = 1000, # If ES in original, set to 1000
-    lambda = 0,
-    phi = 0,
-    theta_r = 1,
-    theta_f = 1,
-    alpha = 1e-6,
-    beta_i = 1e-6
-    ),
-  # # Setting constraints
+    a0 = 5000,
+    a1 = 10,
+    xmid = 10000,
+    scal = 1000,
+    b1 = 0.001
+  ),
+  # Setting constraints
   # lower = c(
-  #   gamma_max = 100,
-  #   lambda = -Inf,
-  #   phi = -Inf,
-  #   theta_r = -Inf,
-  #   theta_f = -Inf,
-  #   alpha = -Inf,
-  #   beta_i = -Inf
-  # ),
-  # upper = c(
-  #   gamma_max = Inf,
+  #   alpha_0 = -Inf,
+  #   alpha_1 = -Inf,
+  #   k = 0,
   #   lambda = 0,
-  #   phi = 0,
-  #   theta_r = Inf,
-  #   theta_f = Inf,
-  #   alpha = 0,
-  #   beta_i = 0
+  #   gamma = 0
   # ),
   na.action =  na.exclude,
   control = nls.lm.control(maxiter = 500)
 )
 
-# fit_gately_nlsLM <- nlsLM(
-#   ES_pcap ~ gately_model(GDP_PPP_pcap_thousands, d_bar, u_bar, rising_income, falling_income, lag_ES_pcap, gamma_max, lambda, phi, theta_r, theta_f, alpha, beta_i),
-#   data = data1,
-#   start = c(
-#     gamma_max = 1000, # If ES in original, set to 1000
-#     lambda = -1e-6,
-#     phi = -1e-6,
-#     theta_r = 1,
-#     theta_f = 1,
-#     alpha = -1e-6,
-#     beta_i = -1e-6
-#   ),
-#   # # Setting constraints
-#   lower = c(
-#     gamma_max = 100,
-#     lambda = -Inf,
-#     phi = -Inf,
-#     theta_r = -Inf,
-#     theta_f = -Inf,
-#     alpha = -Inf,
-#     beta_i = -Inf
-#   ),
-#   upper = c(
-#     gamma_max = Inf,
-#     lambda = 0,
-#     phi = 0,
-#     theta_r = Inf,
-#     theta_f = Inf,
-#     alpha = 0,
-#     beta_i = 0
-#   ),
-#   na.action =  na.exclude,
-#   control = nls.lm.control(maxiter = 500)
-# )
-
 summary(fit_gately_nlsLM)
 
-# copy parameters to clipboard
-parameters <- coef(fit_gately_nlsLM)
-write.table(parameters, file = "clipboard", sep = "\t", row.names = TRUE, col.names = TRUE)
+
+# Extract the estimated coefficients
+coefs <- coef(fit_gately_nlsLM)
+
+# # Compute the maturity term for each observation
+# maturity_term <- with(data1, 
+#                       coefs["alpha_0"] + coefs["alpha_1"] * density_psqkm + coefs["alpha_2"] * lag_ES_pcap
+# )
+# 
+# # Check for any negative values
+# any_negative <- any(maturity_term < 0)
+# 
+# # Optionally, see how many and which ones
+# num_negative <- sum(maturity_term < 0)
+# which_negative <- which(maturity_term < 0)
+# 
+# # Output results
+# cat("Any negative maturity terms? ", any_negative, "\n")
+# cat("Number of negative values: ", num_negative, "\n")
+# 
+# 
+# # copy parameters to clipboard
+# parameters <- coef(fit_gately_nlsLM)
+# write.table(parameters, file = "clipboard", sep = "\t", row.names = TRUE, col.names = TRUE)
 
 ### diagnostics
 
@@ -826,7 +962,7 @@ p1 <- ggplot() +
   ) +
   scale_color_manual(values = country_colors) +
   labs(
-    title = "Predicted Energy Service per Capita using Gately Model",
+    title = "Predicted Energy Service per Capita using Multiplicative Logistic Model",
     x = "GDP per capita (USD)",
     y = "Energy Service per Capita (passenger km / capita)",
     color = "Country",
@@ -842,9 +978,9 @@ ggplotly(p1 + theme(legend.position = "right"), tooltip = "text") %>%
   #layout(title = "Predicted Energy Service per Capita using Additive Logistic Model",
   #       xaxis = list(title = "GDP per capita (USD)"),
   #       yaxis = list(title = "Energy Service per Capita (passenger km / capita)")) %>%
-  htmlwidgets::saveWidget(here::here("plots/predicted_ES_pcap_gately.html"), selfcontained = TRUE)
+  htmlwidgets::saveWidget(here::here("plots/predicted_ES_pcap_multi_logi.html"), selfcontained = TRUE)
 
-ggsave(here::here("plots/predicted_ES_pcap_gately.png"), plot = p1, width = 16, height = 16, dpi = 150)
+ggsave(here::here("plots/predicted_ES_pcap_multi_logi.png"), plot = p1, width = 16, height = 16, dpi = 150)
 
 
 

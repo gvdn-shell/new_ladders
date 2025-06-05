@@ -427,6 +427,29 @@ summary(fit_gately_nlsLM)
 # 
 # summary(fit_gately_nlsLM)
 
+#################################
+### checking whether maturity level ever goes negative
+
+# Extract the estimated coefficients
+coefs <- coef(fit_gately_nlsLM)
+
+# Compute the maturity term for each observation
+maturity_term <- with(data1, 
+                      coefs["alpha_0"] + coefs["alpha_1"] * density_psqkm + coefs["alpha_2"] * lag_ES_pcap
+)
+
+# Check for any negative values
+any_negative <- any(maturity_term < 0)
+
+# Optionally, see how many and which ones
+num_negative <- sum(maturity_term < 0)
+which_negative <- which(maturity_term < 0)
+
+# Output results
+cat("Any negative maturity terms? ", any_negative, "\n")
+cat("Number of negative values: ", num_negative, "\n")
+
+
 # copy parameters to clipboard
 parameters <- coef(fit_gately_nlsLM)
 write.table(parameters, file = "clipboard", sep = "\t", row.names = TRUE, col.names = TRUE)
@@ -892,7 +915,7 @@ p1 <- ggplot() +
   ) +
   scale_color_manual(values = country_colors) +
   labs(
-    title = "Predicted Energy Service per Capita using Weibull 2 Model",
+    title = "Predicted Energy Service per Capita using Weibull 3 Model",
     x = "GDP per capita (USD)",
     y = "Energy Service per Capita (passenger km / capita)",
     color = "Country",
@@ -908,7 +931,7 @@ ggplotly(p1 + theme(legend.position = "right"), tooltip = "text") %>%
   #layout(title = "Predicted Energy Service per Capita using Additive Logistic Model",
   #       xaxis = list(title = "GDP per capita (USD)"),
   #       yaxis = list(title = "Energy Service per Capita (passenger km / capita)")) %>%
-  htmlwidgets::saveWidget(here::here("plots/predicted_ES_pcap_weibull_2.html"), selfcontained = TRUE)
+  htmlwidgets::saveWidget(here::here("plots/predicted_ES_pcap_weibull_3.html"), selfcontained = TRUE)
 
 ggsave(here::here("plots/predicted_ES_pcap_weibull_2.png"), plot = p1, width = 16, height = 16, dpi = 150)
 
