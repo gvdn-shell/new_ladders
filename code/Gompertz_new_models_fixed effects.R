@@ -28,7 +28,7 @@ if (any(!installed_packages)) {
 invisible(lapply(packages, library, character.only = TRUE))
 
 
-data <- readRDS("data/all_data_wem_espcap_imputation_wem_urban_Gini.rds")
+data <- readRDS("all_data_wem_espcap_imputation_wem_urban.rds")
 
 #####
 
@@ -365,7 +365,7 @@ Gompertz_model3 <- deriv(
 fit1 <- nlsLM(
   ES_pcap ~ Gompertz_model1(GDP_PPP_pcap, density_psqkm, a, b, alpha, beta),
   data = data1,
-  start = c(a = 5000, b = 0.01, alpha = 1, beta = 0.001),
+  start = c(a = 1000, b = 0.01, alpha = 1, beta = 0.001),
   na.action = na.exclude, #na.exclude to retain original number of rows
   control = nlmeControl(pnlsTol = 0.5, maxIter = 500, minFactor = 1e-10, msMaxIter = 500, warnOnly = TRUE) 
 )
@@ -382,11 +382,9 @@ fit2 <- nlsLM(
 
 summary(fit2)
 
-fit3 <- nlme(
+fit3 <- nlsLM(
   ES_pcap ~ Gompertz_model3(GDP_PPP_pcap, density_psqkm, a, b, alpha, beta, Gini_case1),
   data = data1,
-  fixed = a + b + alpha + beta ~ 1,
-  random =    beta   ~ 1 | country_name,
   start = c(a = 5000, b = 0.01, alpha = 1, beta = 0.001),
   na.action = na.exclude, #na.exclude to retain original number of rows
   control = nlmeControl(pnlsTol = 0.5, maxIter = 500, minFactor = 1e-10, msMaxIter = 500, warnOnly = TRUE) 
@@ -395,14 +393,20 @@ fit3 <- nlme(
 summary(fit3)
 # Copy summary table in neatly formatted condition and save it as a .csv file using stargazer, including random effects variance and full model summary
 
-library(stargazer)
-summary_table <- stargazer(fit2, type = "text", title = "Model Summary", out = here::here("plots/model_summary.html"))
+#library(stargazer)
+library(modelsummary)
+
+#summary_table <- stargazer(fit1, type = "text", title = "Model Summary", out = here::here("plots/model_summary.html"))
+
+
+modelsummary(fit1, title = "Model Summary")
+
 
 
 intervals <- intervals(fit5)
 # Model chosen
 
-fit <- fit2
+fit <- fit3
 
 # Predictions from model:
 data1_model <- data1[complete.cases(data1[, c("ES_pcap", "GDP_PPP_pcap", "Gini")]), ]
@@ -457,6 +461,8 @@ future_data <- data %>%
 head(future_data)
 
 future_data$predicted_ES_pcap <- predict(fit, newdata = future_data, level = 1) # level = 1 to incorporate random effects
+
+#data$predicted_ES_pcap <- predict(fit, newdata = data, level = 1)
 
 # Plot predicted values for future years and historical data faceted by country
 ggplot() +
@@ -571,7 +577,7 @@ p1_plotly <- plotly::layout(p1_plotly,
 
 # Save as HTML
 htmlwidgets::saveWidget(p1_plotly,
-                        file = here::here("plots/Gompertz mixed models/Gompertz_new_models_test.html"),
+                        file = here::here("plots/Gompertz mixed models/Gompertz_fixed effect_no_Gini.html"),
                         selfcontained = TRUE)
 
 
