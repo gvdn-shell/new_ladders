@@ -229,7 +229,7 @@ excluded.countries <- c("Luxembourg", "United Arab Emirates", "Qatar", "Kuwait",
 exclude.countries <- c(
   #oil_gas_countries,
   #former_ussr_and_others,
-  rest_of_countries,
+  #rest_of_countries,
   excluded.countries
 )
 
@@ -284,6 +284,12 @@ weibull_model_1 <- deriv(
     exp(-(GDP_PPP_pcap / lambda)^(k * Gini)),
   namevec = c("alpha_0", "alpha_1", "k", "lambda"),
   function.arg = c("density_psqkm", "Gini", "GDP_PPP_pcap", "alpha_0", "alpha_1", "k", "lambda")
+)
+
+multiple_logistic_model4 <- deriv(
+  ~ (a0 + a1 * density_psqkm) * (1 / (1 + exp((GDP_PPP_pcap - xmid) / scal))) ^ (g0 + g1 * Gini),
+  namevec = c("a0", "a1", "xmid", "scal", "g0", "g1"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "a0", "a1", "xmid", "scal", "g0", "g1", "Gini")
 )
 
 ################################################################################
@@ -469,24 +475,139 @@ fit_weibull_4_nlme <- nlme(
 summary(fit_weibull_4_nlme)
 
 fit_weibull_4 <- fit_weibull_4_nlme
+
+################################################################################
+# FIT LOGISTIC MODEL 4 USING nlsLM (INCLUDES LAGGED ES_pcap)
+################################################################################
+
+multiple_logistic_model4 <- deriv(
+  ~ (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap) / scal))) ^ (gamma_0 + gamma_1 * Gini),
+  namevec = c("alpha_0", "alpha_1", "xmid", "scal", "gamma_0", "gamma_1"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "alpha_0", "alpha_1", "xmid", "scal", "gamma_0", "gamma_1", "Gini")
+)
+
+
+
+nlslm_fit_logistic_4 <- nlsLM(
+  ES_pcap ~ multiple_logistic_model4(GDP_PPP_pcap_thousands, density_psqkm, alpha_0, alpha_1, xmid, scal, gamma_0, gamma_1, Gini_01),
+  data = data1,
+  start = c(
+    alpha_0 = 1000,
+    alpha_1 = 0,
+    xmid = 10000,
+    scal = 2000,
+    gamma_0 = 1,
+    gamma_1 = 0.001
+  ),
+  # lower = c(
+  #   alpha_0 = -Inf,
+  #   alpha_1 = -Inf,
+  #   alpha_2 = -Inf,
+  #   k = 0,
+  #   lambda = 0,
+  #   gamma = 0
+  # ),
+  na.action = na.exclude,
+  control = nls.lm.control(maxiter = 500)
+)
+
+# Display model summary
+summary(nlslm_fit_logistic_4)
+
+# Extract starting values from nlsLM fit
+start_vals <- list(fixed = coef(nlslm_fit_logistic_4))
+
+# # Fit nonlinear mixed-effects model with random effect on alpha_0
+# fit_logistic_4_nlme <- nlme(
+#   model = ES_pcap ~ multiple_logistic_model4(GDP_PPP_pcap_thousands, 
+#           density_psqkm, alpha_0, alpha_1, xmid, scal, gamma_0, gamma_1, Gini_01),
+#   data = data1,
+#   fixed = alpha_0 + alpha_1 + xmid + scal + gamma_0 + gamma_1 ~ 1,
+#   random = alpha_1 ~ 1 | country_id,  # Random effect on alpha_0
+#   start = start_vals,
+#   na.action = na.exclude,
+#   control = nlmeControl(
+#     pnlsTol = 0.5,
+#     maxIter = 500,
+#     minFactor = 1e-10,
+#     msMaxIter = 500,
+#     warnOnly = TRUE
+#   )
+# )
+# 
+# summary(fit_logistic_4_nlme)
+# 
+# fit_weibull_4 <- fit_logistic_4_nlme
+
+####################################################
+
+multiple_logistic_model_4 <- deriv(
+  ~ ((a0 + a1 * density_psqkm) / (1 + exp((xmid - GDP_PPP_pcap) / scal))) * exp(b1 * Gini),
+  namevec = c("a0", "a1", "xmid", "scal", "b1"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "a0", "a1", "xmid", "scal", "b1")
+)
+
+nlslm_fit_logistic_4 <- nlsLM(
+  ES_pcap ~ multiple_logistic_model_4(GDP_PPP_pcap, density_psqkm, Gini_01, a0, a1, xmid, scal, b1),
+  data = data1,
+  start = c(a0 = 5000, a1 = 10, xmid = 10000, scal = 1000, b1 = 0.001),
+  # lower = c(
+  #   alpha_0 = -Inf,
+  #   alpha_1 = -Inf,
+  #   alpha_2 = -Inf,
+  #   k = 0,
+  #   lambda = 0,
+  #   gamma = 0
+  # ),
+  na.action = na.exclude,
+  control = nls.lm.control(maxiter = 500)
+)
+
+# Display model summary
+summary(nlslm_fit_logistic_4)
+
+# Extract starting values from nlsLM fit
+start_vals <- list(fixed = coef(nlslm_fit_logistic_4))
+
+# Fit nonlinear mixed-effects model with random effect on alpha_0
+fit_logistic_4_nlme <- nlme(
+  model = ES_pcap ~ multiple_logistic_model_4(GDP_PPP_pcap, density_psqkm, Gini_01, a0, a1, xmid, scal, b1),
+  data = data1,
+  fixed = a0 + a1 + xmid + scal + b1 ~ 1,
+  random = a0 ~ 1 | country_id,  # Random effect on alpha_0
+  start = start_vals,
+  na.action = na.exclude,
+  control = nlmeControl(
+    pnlsTol = 0.5,
+    maxIter = 500,
+    minFactor = 1e-10,
+    msMaxIter = 500,
+    warnOnly = TRUE
+  )
+)
+
+summary(fit_logistic_4_nlme)
+
+fit_weibull_4 <- fit_logistic_4_nlme #nlslm_fit_logistic_4 #fit_logistic_4_nlme
+
 ################################################################################
 # CHECKING FOR NEGATIVE MATURITY TERMS
 ################################################################################
 
-# Extract estimated coefficients from the fitted model
-coefs <- coef(fit_weibull_4)
-
-# Compute the maturity term for each observation
-maturity_term <- with(data1, coefs["alpha_0"] + coefs["alpha_1"] * density_psqkm)
-
-# Check if any maturity terms are negative
-any_negative <- any(maturity_term < 0)
-num_negative <- sum(maturity_term < 0)
-which_negative <- which(maturity_term < 0)
-
-# Output results
-cat("Any negative maturity terms? ", any_negative, "\n")
-cat("Number of negative values: ", num_negative, "\n")
+# # Extract estimated coefficients from the fitted model
+# coefs <- coef(fit_weibull_4)
+# 
+# # Compute the maturity term for each observation
+# maturity_term <- with(data1, coefs["alpha_0"] + coefs["alpha_1"] * density_psqkm)
+# 
+# # Check if any maturity terms are negative
+# any_negative <- any(maturity_term < 0)
+# num_negative <- sum(maturity_term < 0)
+# which_negative <- which(maturity_term < 0)
+# 
+# # Output results
+# cat("Any negative maturity terms? ", any_negative, "\n")
+# cat("Number of negative values: ", num_negative, "\n")
 
 ################################################################################
 # COPY MODEL PARAMETERS TO CLIPBOARD (WINDOWS ONLY)
@@ -501,10 +622,18 @@ write.table(parameters, file = "clipboard", sep = "\t", row.names = TRUE, col.na
 ################################################################################
 
 # Create a clean dataset used in the model (omit rows with missing values)
-model_data <- na.omit(data1[, c(
-  "ES_pcap", "GDP_PPP_pcap_thousands", "d_bar", "u_bar",
-  "rising_income", "falling_income", "lag_ES_pcap"
-)])
+# model_data <- na.omit(data1[, c(
+#   "ES_pcap", "GDP_PPP_pcap_thousands", "d_bar", "u_bar",
+#   "rising_income", "falling_income", "lag_ES_pcap"
+# )])
+
+
+model_data <- 
+  data1[complete.cases(data1[, c(
+    "ES_pcap", "GDP_PPP_pcap_thousands", "density_psqkm", "Gini_01"
+  )]), ]
+
+
 
 # Optionally, use full dataset instead (commented out)
 # full_model_data <- na.omit(full.dataset[, c(
@@ -611,6 +740,11 @@ data1_model <- full.dataset[complete.cases(full.dataset[, c(
   "ES_pcap", "GDP_PPP_pcap_thousands", "d_bar", "u_bar",
   "rising_income", "falling_income", "lag_ES_pcap"
 )]), ]
+
+data1_model <- full.dataset[complete.cases(full.dataset[, c(
+  "ES_pcap", "GDP_PPP_pcap_thousands", "density_psqkm", "Gini_01"
+)]), ]
+
 
 # Generate predictions using the fitted model
 data1_model$predicted_ES_pcap <- predict(fit, newdata = data1_model, level = 1)
@@ -909,7 +1043,7 @@ p1 <- ggplot() +
   ) +
   scale_color_manual(values = country_colors) +
   labs(
-    title = "Predicted Energy Service per Capita using Weibull 3 Model",
+    title = "Predicted Energy Service per Capita using Logistic 4 Model",
     x = "GDP per capita (USD)",
     y = "Energy Service per Capita (passenger km / capita)",
     color = "Country",
@@ -942,13 +1076,13 @@ p1 <- p1 +
 # Save interactive HTML version
 ggplotly(p1 + theme(legend.position = "right"), tooltip = "text") %>%
   htmlwidgets::saveWidget(
-    here::here("plots/predicted_ES_pcap_weibull_4_re.html"),
+    here::here("plots/predicted_ES_pcap_logistic_4_re.html"),
     selfcontained = TRUE
   )
 
 # Save static PNG version
 ggsave(
-  filename = here::here("plots/predicted_ES_pcap_weibull_4_re.png"),
+  filename = here::here("plots/predicted_ES_pcap_logistic_4_re.png"),
   plot = p1,
   width = 16, height = 16, dpi = 150
 )
