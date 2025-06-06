@@ -292,6 +292,7 @@ multiple_logistic_model4 <- deriv(
   function.arg = c("GDP_PPP_pcap", "density_psqkm", "a0", "a1", "xmid", "scal", "g0", "g1", "Gini")
 )
 
+
 ################################################################################
 # EVALUATE MODEL OVER A GRID OF VALUES
 ################################################################################
@@ -548,7 +549,7 @@ multiple_logistic_model_4 <- deriv(
 )
 
 nlslm_fit_logistic_4 <- nlsLM(
-  ES_pcap ~ multiple_logistic_model_4(GDP_PPP_pcap, density_psqkm, Gini_01, a0, a1, xmid, scal, b1),
+  ES_pcap ~ multiple_logistic_model_4(GDP_PPP_pcap_thousands, density_psqkm, Gini_01, a0, a1, xmid, scal, b1),
   data = data1,
   start = c(a0 = 5000, a1 = 10, xmid = 10000, scal = 1000, b1 = 0.001),
   # lower = c(
@@ -571,7 +572,7 @@ start_vals <- list(fixed = coef(nlslm_fit_logistic_4))
 
 # Fit nonlinear mixed-effects model with random effect on alpha_0
 fit_logistic_4_nlme <- nlme(
-  model = ES_pcap ~ multiple_logistic_model_4(GDP_PPP_pcap, density_psqkm, Gini_01, a0, a1, xmid, scal, b1),
+  model = ES_pcap ~ multiple_logistic_model_4(GDP_PPP_pcap_thousands, density_psqkm, Gini_01, a0, a1, xmid, scal, b1),
   data = data1,
   fixed = a0 + a1 + xmid + scal + b1 ~ 1,
   random = a0 ~ 1 | country_id,  # Random effect on alpha_0
@@ -589,6 +590,134 @@ fit_logistic_4_nlme <- nlme(
 summary(fit_logistic_4_nlme)
 
 fit_weibull_4 <- fit_logistic_4_nlme #nlslm_fit_logistic_4 #fit_logistic_4_nlme
+
+################################################################################
+### Logistic models:
+
+logistic_model_1 <- deriv(
+  ~ (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp(- 1/k * (GDP_PPP_pcap - xmid)))),
+  namevec = c("alpha_0", "alpha_1", "xmid", "k"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "alpha_0", "alpha_1", "xmid", "k")
+)
+
+# Set parameter values
+alpha_0 <- 20000
+alpha_1 <- -0.15
+xmid <- 25000
+k <- 4500
+
+# Create a grid of values
+GDP_PPP_pcap_vals <- seq(10000, 100000, length.out = 100)
+density_vals <- seq(10, 1000, length.out = 100)
+grid <- expand.grid(GDP_PPP_pcap = GDP_PPP_pcap_vals, density_psqkm = density_vals)
+
+# Compute model values
+grid$logistic_value <- with(grid, logistic_model_1(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal))
+
+# Plot using ggplot2
+ggplot(grid, aes(x = GDP_PPP_pcap, y = density_psqkm, z = logistic_value)) +
+  geom_contour_filled() +
+  scale_fill_viridis_d() +
+  labs(
+    title = "Logistic Model Visualization",
+    x = "GDP_PPP_pcap",
+    y = "Population Density (per sq km)",
+    fill = "Model Output"
+  ) +
+  theme_minimal()
+
+################################################################################
+# EVALUATE MODEL OVER A GRID OF VALUES
+################################################################################
+
+# Define the logistic model function
+logistic_model <- function(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal) {
+  (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((GDP_PPP_pcap - xmid) / scal)))
+}
+
+# logistic_model <- function(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal) {
+#   (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap) / scal)))
+# }
+
+# Set parameter values
+alpha_0 <- 1
+alpha_1 <- 0.5
+xmid <- 50000
+scal <- 10000
+
+# Create sequences
+GDP_PPP_pcap_vals <- seq(10000, 100000, length.out = 100)
+density_vals <- seq(10, 1000, length.out = 100)
+
+# Create grid and compute z values
+z_vals <- outer(density_vals, GDP_PPP_pcap_vals, Vectorize(function(d, gdp) {
+  logistic_model(gdp, d, alpha_0, alpha_1, xmid, scal)
+}))
+
+# Create interactive 3D surface plot
+(plot1 <- plot_ly(
+  x = ~density_vals,
+  y = ~GDP_PPP_pcap_vals,
+  z = ~z_vals
+) %>%
+  add_surface() %>%
+  layout(
+    title = "Interactive 3D Surface Plot of Logistic Model",
+    scene = list(
+      xaxis = list(title = "Population Density (per sq km)"),
+      yaxis = list(title = "GDP PPP per Capita"),
+      zaxis = list(title = "ES per capita")
+    )
+  ))
+
+htmlwidgets::saveWidget(plot1, here::here("plots/logistic_model_plot.html"))
+
+
+
+
+
+nlslm_fit_logistic_1 <- nlsLM(
+  ES_pcap ~ SSlogis(GDP_PPP_pcap, Asym, xmid, scal),#logistic_model_1(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal),
+  data = data1,
+  #start = c(a0 = 50000, a1 = 10, xmid = 10000, scal = 1000),
+  # lower = c(
+  #   alpha_0 = -Inf,
+  #   alpha_1 = -Inf,
+  #   alpha_2 = -Inf,
+  #   k = 0,
+  #   lambda = 0,
+  #   gamma = 0
+  # ),
+  na.action = na.exclude,
+  control = nls.lm.control(maxiter = 500)
+)
+
+# Display model summary
+summary(nlslm_fit_logistic_1)
+
+# Extract starting values from nlsLM fit
+start_vals <- list(fixed = coef(nlslm_fit_logistic_1))
+
+# Fit nonlinear mixed-effects model with random effect on alpha_0
+fit_logistic_1_nlme <- nlme(
+  model = ES_pcap ~ logistic_model_1(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal),
+  data = data1,
+  fixed = alpha_0 + alpha_1 + xmid + scal ~ 1,
+  random = alpha_0 ~ 1 | country_id,  # Random effect on alpha_0
+  start = start_vals,
+  na.action = na.exclude,
+  control = nlmeControl(
+    pnlsTol = 0.5,
+    maxIter = 500,
+    minFactor = 1e-10,
+    msMaxIter = 500,
+    warnOnly = TRUE
+  )
+)
+
+summary(fit_logistic_1_nlme)
+
+fit_weibull_4 <- nlslm_fit_logistic_1
 
 ################################################################################
 # CHECKING FOR NEGATIVE MATURITY TERMS
@@ -1002,6 +1131,102 @@ country_colors <- historical_data %>%
 
 country_colors <- setNames(country_colors$Hex, country_colors$country_name)
 
+################################################################################
+# CREATE PLOT: GDP vs. ES_pcap (Historical vs. Predicted)
+################################################################################
+
+p1 <- ggplot() +
+  # Historical lines
+  geom_line(
+    data = historical_data,
+    aes(
+      x = GDP_PPP_pcap,
+      y = ES_pcap,
+      color = country_name,
+      group = country_name,
+      text = paste(
+        "Country:", country_name,
+        "<br>Year:", year,
+        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+        "<br>ES per capita:", scales::comma(ES_pcap)
+      )
+    ),
+    linetype = "solid"
+  ) +
+  # Predicted lines
+  geom_line(
+    data = predicted_data,
+    aes(
+      x = GDP_PPP_pcap,
+      y = ES_pcap,
+      color = country_name,
+      group = country_name,
+      text = paste(
+        "Country:", country_name,
+        "<br>Year:", year,
+        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+        "<br>ES per capita:", scales::comma(ES_pcap)
+      )
+    ),
+    linetype = "dashed"
+  ) +
+  scale_color_manual(values = country_colors) +
+  labs(
+    title = "Predicted Energy Service per Capita using Logistic 1 Model",
+    x = "GDP per capita (USD)",
+    y = "Energy Service per Capita (passenger km / capita)",
+    color = "Country",
+    linetype = "Data Type"
+  ) +
+  theme_minimal() +
+  create_theme(16) +
+  scale_x_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k")) +
+  scale_y_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k"))
+
+# Add the Logistic equation to your existing plot
+p1 <- p1 +
+  annotate(
+    "text",
+    x = Inf, y = Inf,  # Position in top-right corner (adjust as needed)
+    label = "italic((alpha[0] + alpha[1]*density[psqkm]) * 
+                    (1/(1 + exp(- (GDP[PPP][pcap] - xmid)/ scale))))",
+    hjust = 1.1, vjust = 1.5,
+    parse = TRUE,
+    size = 4
+  )
+
+# # Add the Weibull equation to your existing plot
+# p1 <- p1 +
+#   annotate(
+#     "text",
+#     x = Inf, y = Inf,  # Position in top-right corner (adjust as needed)
+#     label = "italic((alpha[0] + alpha[1]*density[psqkm] + alpha[2]*lag_ES[pcap]) * 
+#                     k / exp(gamma + lambda*Gini) * 
+#                     (GDP[PPP][pcap] / exp(gamma + lambda*Gini))^(k - 1) * 
+#                     exp(-(GDP[PPP][pcap] / exp(gamma + lambda*Gini))^k))",
+#     hjust = 1.1, vjust = 1.5,
+#     parse = TRUE,
+#     size = 4
+#   )
+# 
+
+################################################################################
+# EXPORT INTERACTIVE AND STATIC VERSIONS OF THE PLOT
+################################################################################
+
+# Save interactive HTML version
+ggplotly(p1 + theme(legend.position = "right"), tooltip = "text") %>%
+  htmlwidgets::saveWidget(
+    here::here("plots/predicted_ES_pcap_logistic_1_fe.html"),
+    selfcontained = TRUE
+  )
+
+# Save static PNG version
+ggsave(
+  filename = here::here("plots/predicted_ES_pcap_logistic_1_fe.png"),
+  plot = p1,
+  width = 16, height = 16, dpi = 150
+)
 ################################################################################
 # CREATE PLOT: GDP vs. ES_pcap (Historical vs. Predicted)
 ################################################################################
