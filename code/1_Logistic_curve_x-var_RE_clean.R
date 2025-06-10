@@ -599,6 +599,7 @@ nlsLM_fit <- nlsLM(
 
 
 summary(nlsLM_fit)
+plot(residuals(nls2_fit))
 plot(residuals(nlsLM_fit))
 
 fit_weibull_4 <- nlsLM_fit
@@ -690,7 +691,7 @@ model_data <-
 # model_data <- full_model_data
 
 # Add model predictions and residuals
-model_data$predicted <- predict(fit_weibull_4, level = 1)
+model_data$predicted <- predict(fit_weibull_4, level = 0)
 model_data$residuals <- model_data$ES_pcap - model_data$predicted
 
 ################################################################################
@@ -714,6 +715,46 @@ plot(
   pch = 19, col = rgb(0, 0, 1, 0.5)
 )
 abline(h = 0, col = "red", lty = 2)
+
+# Plot residuals versus fitted values using ggplot2 and colour by country_name
+ggplotly(ggplot(model_data, aes(x = predicted, y = residuals, color = country_name)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Residuals vs Fitted Values",
+    x = "Fitted ES_pcap",
+    y = "Residuals"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none"))
+
+# Plot qq plots of residuals facetted by country_name
+p1 <- ggplotly(ggplot(model_data, aes(sample = residuals)) +
+  geom_qq() +
+  geom_qq_line() +
+  facet_wrap(~ country_name, scales = "free") +
+  labs(
+    title = "Q-Q Plot of Residuals by Country",
+    x = "Theoretical Quantiles",
+    y = "Sample Quantiles"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none"))
+
+# Save p1 to interactive html
+htmlwidgets::saveWidget(p1, here::here("plots/logistic1_qq_plot_residuals_by_country.html"))
+
+# Plot influential values
+ggplotly(ggplot(model_data, aes(x = predicted, y = residuals, color = country_name)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Residuals vs Fitted Values",
+    x = "Fitted ES_pcap",
+    y = "Residuals"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none"))
 
 # 3. Histogram of Residuals
 hist(
@@ -795,7 +836,7 @@ data1_model <- full.dataset[complete.cases(full.dataset[, c(
 
 
 # Generate predictions using the fitted model
-data1_model$predicted_ES_pcap <- predict(fit, newdata = data1_model, level = 1)
+data1_model$predicted_ES_pcap <- predict(fit, newdata = data1_model, level = 0)
 
 # Calculate residuals
 data1_model$residuals <- data1_model$ES_pcap - data1_model$predicted_ES_pcap
@@ -818,6 +859,20 @@ ggplot(data1_model, aes(x = ES_pcap, y = predicted_ES_pcap, color = country_name
   ) +
   theme_minimal() +
   theme(legend.position = "none")
+
+# 1.A Plot standardized residuals vs. fitted values
+# standardize residuals
+
+ggplotly(ggplot(data1_model, aes(x = predicted_ES_pcap, y = residuals, color = country_name)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Residuals vs Fitted Values",
+    x = "Fitted ES_pcap",
+    y = "Residuals"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none"))
 
 # 2. Residuals by Year and Country
 ggplot(data1_model, aes(x = year, y = residuals, color = country_name)) +
