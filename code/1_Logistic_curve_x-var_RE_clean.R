@@ -1080,7 +1080,7 @@ country_colors <- setNames(country_colors$Hex, country_colors$country_name)
 
 p1 <- ggplot() +
   # Historical lines
-  geom_line(
+  geom_path(
     data = historical_data,
     aes(
       x = GDP_PPP_pcap,
@@ -1097,7 +1097,7 @@ p1 <- ggplot() +
     linetype = "solid"
   ) +
   # Predicted lines
-  geom_line(
+  geom_path(
     data = predicted_data,
     aes(
       x = GDP_PPP_pcap,
@@ -1797,7 +1797,7 @@ country_colors <- setNames(country_colors$Hex, country_colors$country_name)
 
 p1 <- ggplot() +
   # Historical lines
-  geom_line(
+  geom_path(
     data = historical_data,
     aes(
       x = GDP_PPP_pcap,
@@ -1814,7 +1814,7 @@ p1 <- ggplot() +
     linetype = "solid"
   ) +
   # Predicted lines
-  geom_line(
+  geom_path(
     data = predicted_data,
     aes(
       x = GDP_PPP_pcap,
@@ -2512,7 +2512,7 @@ country_colors <- setNames(country_colors$Hex, country_colors$country_name)
 
 p1 <- ggplot() +
   # Historical lines
-  geom_line(
+  geom_path(
     data = historical_data,
     aes(
       x = GDP_PPP_pcap,
@@ -2529,7 +2529,7 @@ p1 <- ggplot() +
     linetype = "solid"
   ) +
   # Predicted lines
-  geom_line(
+  geom_path(
     data = predicted_data,
     aes(
       x = GDP_PPP_pcap,

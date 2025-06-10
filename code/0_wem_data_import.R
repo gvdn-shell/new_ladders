@@ -1318,8 +1318,8 @@ all.data.gompertz <- all.data.gompertz %>%
   group_by(country_id) %>%
   arrange(country_id, year) %>%
   mutate(
-    rising_income = if_else(GDP_PPP_pcap > lag(GDP_PPP_pcap, default = first(GDP_PPP_pcap)), 1, 0),
-    falling_income = if_else(GDP_PPP_pcap < lag(GDP_PPP_pcap, default = first(GDP_PPP_pcap)), 1, 0)
+    rising_income = if_else(GDP_PPP_pcap > lag(GDP_PPP_pcap), 1, 0),#if_else(GDP_PPP_pcap > lag(GDP_PPP_pcap, default = first(GDP_PPP_pcap)), 1, 0),
+    falling_income = if_else(GDP_PPP_pcap < lag(GDP_PPP_pcap), 1, 0)
   ) %>%
   select(-USA_dens, -USA_urban) %>%
   ungroup() %>%
