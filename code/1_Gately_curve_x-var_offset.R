@@ -443,6 +443,25 @@ logistic_model_1 <- deriv(
   function.arg = c("GDP_PPP_pcap", "d_bar", "u_bar", "rising_income", "falling_income", "lag_ES_pcap", "gamma_max", "lambda", "phi", "theta_r", "theta_f", "alpha", "beta_i")
 )
 
+# Rebalancing because of perfect multicollinearity
+
+# logistic_model_1 <- deriv(
+#   ~ (gamma_max + lambda * d_bar + phi * u_bar) * (theta_f + theta_r * rising_income) * exp(alpha * exp(beta_i * GDP_PPP_pcap)) +
+#     (1 - (theta_f + (theta_r) * rising_income)) * lag_ES_pcap,
+#   namevec = c("gamma_max", "lambda", "phi", "theta_r", "theta_f", "alpha", "beta_i"),
+#   function.arg = c("GDP_PPP_pcap", "d_bar", "u_bar", "rising_income", "lag_ES_pcap", "gamma_max", "lambda", "phi", "theta_r", "theta_f", "alpha", "beta_i")
+# )
+
+logistic_model_1 <- deriv(
+  ~ (gamma_max + lambda * d_bar + phi * u_bar) * (theta_r  + theta_f * falling_income) * exp(alpha * exp(beta_i * GDP_PPP_pcap)) +
+    (1 - theta_r - theta_f * falling_income) * lag_ES_pcap,
+  namevec = c("gamma_max", "lambda", "phi", "theta_r", "theta_f", "alpha", "beta_i"),
+  function.arg = c("GDP_PPP_pcap", "d_bar", "u_bar", "falling_income", "lag_ES_pcap", "gamma_max", "lambda", "phi", "theta_r", "theta_f", "alpha", "beta_i")
+)
+
+# Check if rising_income and falling_income are collinear
+alias(lm(rising_income ~ falling_income, data = data1))
+
 # logistic_model_1 <- function(GDP_PPP_pcap, d_bar, u_bar, rising_income, falling_income,
 #                                     lag_ES_pcap, gamma_max, lambda, phi, theta_r, theta_f, alpha, beta_i) {
 #   term1 <- (gamma_max + lambda * d_bar + phi * u_bar) * 
@@ -548,10 +567,35 @@ data1 %>%
   filter(is.na(ES_pcap)) %>%
   select(country_name, year, ES_pcap, GDP_PPP_pcap, density_psqkm)
 
+
 ################################################################################
 # Fit the model using nls2 with brute-force algorithm
+# nls2_fit <- nls2(
+#   ES_pcap ~ logistic_model_1(GDP_PPP_pcap_thousands, d_bar, u_bar, rising_income, falling_income, lag_ES_pcap, gamma_max, lambda, phi, theta_r, theta_f, alpha, beta_i),#(alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((GDP_PPP_pcap - xmid)/scal))),
+#   data = data1,
+#   start = data.frame(
+#     gamma_max = seq(0, 50000, length.out = 100),
+#     lambda = seq(-10, 0, length.out = 100),
+#     phi = seq(-10, 0, length.out = 100),
+#     theta_r = seq(-10, 10, length.out = 100),
+#     theta_f = seq(-10, 10, length.out = 100),
+#     alpha = seq(-50, 0, length.out = 100),
+#     beta_i = seq(-50, 0, length.out = 100)
+#   ),
+#   #algorithm = "random-search"
+#   algorithm = "brute-force"
+# )
+
+logistic_model_1 <- deriv(
+  ~ (gamma_max + lambda * d_bar + phi * u_bar) * (theta_r  + theta_f * falling_income) * exp(alpha * exp(beta_i * GDP_PPP_pcap)) +
+    (1 - theta_r - theta_f * falling_income) * lag_ES_pcap,
+  namevec = c("gamma_max", "lambda", "phi", "theta_r", "theta_f", "alpha", "beta_i"),
+  function.arg = c("GDP_PPP_pcap", "d_bar", "u_bar", "falling_income", "lag_ES_pcap", "gamma_max", "lambda", "phi", "theta_r", "theta_f", "alpha", "beta_i")
+)
+
 nls2_fit <- nls2(
-  ES_pcap ~ logistic_model_1(GDP_PPP_pcap_thousands, d_bar, u_bar, rising_income, falling_income, lag_ES_pcap, gamma_max, lambda, phi, theta_r, theta_f, alpha, beta_i),#(alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((GDP_PPP_pcap - xmid)/scal))),
+  ES_pcap ~ logistic_model_1(GDP_PPP_pcap_thousands, d_bar, u_bar, falling_income, lag_ES_pcap, 
+                             gamma_max, lambda, phi, theta_r, theta_f, alpha, beta_i),#(alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((GDP_PPP_pcap - xmid)/scal))),
   data = data1,
   start = data.frame(
     gamma_max = seq(0, 50000, length.out = 100),
@@ -566,24 +610,53 @@ nls2_fit <- nls2(
   algorithm = "brute-force"
 )
 
-# nls2_fit <- nls2(
-#   ES_pcap ~ logistic_model_1(GDP_PPP_pcap_thousands, Gini_01, d_bar, u_bar, rising_income, falling_income,
-#                              lag_ES_pcap, gamma_max, lambda, phi, theta_r, theta_f, beta_i, alpha_1),#(alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((GDP_PPP_pcap - xmid)/scal))),
-#   data = data1,
-#   start = data.frame(
-#     gamma_max = seq(0, 10000, length.out = 10),
-#     lambda = seq(-5, 0, length.out = 10),
-#     phi = seq(-5, 0, length.out = 10),
-#     theta_r = seq(-5, 5, length.out = 10),
-#     theta_f = seq(-5, 5, length.out = 10),
-#     beta_i = seq(-10, 0, length.out = 10),
-#     #alpha_0 = seq(-10, 10, length.out = 10),
-#     alpha_1 = seq(-10, 10, length.out = 10)
-#   ),
-#     algorithm = "random-search"
-#   #algorithm = "brute-force"
-# )
+########################
+logistic_model_scurve <- deriv(
+  ~ (gamma_max + lambda * d_bar + phi * u_bar) * plogis(alpha * Gini + beta_i * GDP_PPP_pcap) +
+    rho * lag_ES_pcap,
+  namevec = c("gamma_max", "lambda", "phi", "alpha", "beta_i", "rho"),
+  function.arg = c("GDP_PPP_pcap", "Gini", "d_bar", "u_bar", "lag_ES_pcap", 
+                   "gamma_max", "lambda", "phi", "alpha", "beta_i", "rho")
+)
 
+
+nls2_fit <- nls2(
+  ES_pcap ~ logistic_model_scurve(GDP_PPP_pcap, Gini, d_bar, u_bar, lag_ES_pcap, 
+                                  gamma_max, lambda, phi, alpha, beta_i, rho),
+  data = data1,
+  start = data.frame(
+    gamma_max = seq(0, 50000, length.out = 10),
+    lambda = seq(-10, 0, length.out = 10),
+    phi = seq(-10, 0, length.out = 10),
+    alpha = seq(-20, 5, length.out = 10),
+    beta_i = seq(-5, 5, length.out = 10),
+    rho = seq(-1, 1, length.out = 10)
+  ),
+  algorithm = "brute-force",
+  na.action = na.exclude
+)
+
+
+nlsLM_fit <- nlsLM(
+  ES_pcap ~ logistic_model_scurve(GDP_PPP_pcap, Gini, d_bar, u_bar, lag_ES_pcap, 
+                                  gamma_max, lambda, phi, alpha, beta_i, rho),
+  data = data1,
+  start = list(
+    gamma_max = 20000,
+    lambda = -5,
+    phi = -5,
+    alpha = 1,
+    beta_i = 0.001,
+    rho = 0.5
+  ),
+  control = nls.lm.control(maxiter = 1000, ftol = 1e-10, ptol = 1e-10),
+  na.action = na.exclude
+)
+
+
+
+
+###################################################################################################################################################
 summary(nls2_fit)
 
 best_start_vals <- as.list(coef(nls2_fit))

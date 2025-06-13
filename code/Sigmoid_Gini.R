@@ -122,7 +122,7 @@ fig <- plot_ly(
   )
 
 # Save to HTML
-htmlwidgets::saveWidget(fig, here::here("plots/energy_service_3d_plot.html"))
+htmlwidgets::saveWidget(fig, here::here("plots/energy_service_3d_plot.html"), selfcontained = TRUE)
 
 #################################
 
@@ -183,7 +183,7 @@ fig <- plot_ly(
   )
 
 # Save to HTML
-htmlwidgets::saveWidget(fig, here::here("plots/energy_service_animated_plot.html"))
+htmlwidgets::saveWidget(fig, here::here("plots/energy_service_animated_plot.html"), selfcontained = TRUE)
 
 ####################
 
@@ -271,7 +271,7 @@ fig <- plot_ly(
 fig$x$frames <- frames
 
 # Save to HTML
-saveWidget(fig, file = here::here("plots/energy_service_animated_plot.html"))
+saveWidget(fig, file = here::here("plots/energy_service_animated_plot.html"), selfcontained = TRUE)
 
 ##################
 

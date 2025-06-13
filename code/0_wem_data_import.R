@@ -1337,6 +1337,26 @@ all.data.gompertz <- all.data.gompertz %>%
   # Move country_name to second column and drop wem_regions column
   select(country_id, country_name, everything(), -wem_regions, -iso3c)
 
+# # Normalization of pop density and urbanization as per Gately
+# 
+# all.data.gompertz1 <- all.data.gompertz %>%
+#   ungroup() %>%
+#   mutate(
+#     density_psqkm_normalized = density_psqkm - mean(density_psqkm, na.rm = TRUE),
+#     urbanization_perc_normalized = urbanization_perc - mean(urbanization_perc, na.rm = TRUE)
+#   ) 
+# 
+# all.data.gompertz.usa.norm <- all.data.gompertz1 %>%
+#   filter(country_id == 1) %>%
+#   select(year, USA_dens_norm = density_psqkm_normalized, USA_urban_norm = urbanization_perc_normalized)
+# 
+# all.data.gompertz1 <- all.data.gompertz1 %>%
+#   left_join(all.data.gompertz.usa.norm, by = "year") %>%
+#   mutate(
+#     d_bar_normalized = pmax(density_psqkm_normalized - USA_dens_norm, 0),
+#     u_bar_normalized = pmax(urbanization_perc_normalized - USA_urban_norm, 0)) 
+  
+
 # additional_imputation <- all.data.gompertz %>%
 #   ungroup() %>%
 #   group_by(wem_regions, year) #%>%
