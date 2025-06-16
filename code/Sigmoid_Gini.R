@@ -1,6 +1,7 @@
 library(ggplot2)
 library(dplyr)
 library(here)
+library(plotly)
 
 create_theme <- function(text_size = 14) {
   theme(
@@ -29,24 +30,35 @@ create_theme <- function(text_size = 14) {
 }
 
 # Define the modified sigmoid function
-sigmoid_modified <- function(x, xmid = 13800, scal = 11700, b1 = 6.3, x2, pop_dens, alpha_0 = 7200, alpha_1 = -0.618) {
+sigmoid_modified <- function(x, x2, pop_dens, 
+                             xmid, scal, b1, alpha_0, alpha_1) {
   (alpha_0 + alpha_1 * pop_dens) * (1 / (1 + exp((xmid - x) / scal)))^(b1 * x2)
 }
 
+# Constants
+xmid <- 23432.86
+scal <- 8155.97
+alpha_0 <- 7293.36
+alpha_1 <- -2.46
+beta_1 <- 2.96
+pop_dens <- 270
+
 # Generate data
 x_vals <- seq(0, 125000, length.out = 500)
-x2_vals <- seq(0.1, 0.9, by = 0.2)
-pop_dens <- 270  # Mean Population density
+x2_vals <- seq(0.1, 0.9, by = 0.05)
 
 # Create plot data
 plot_data <- do.call(rbind, 
-                     lapply(x2_vals, function(x2_val){
+                     lapply(x2_vals, function(x2_val) {
                        data.frame(
-                         x = x_vals, 
-                         y = sigmoid_modified(x_vals, x2 = x2_val, pop_dens = pop_dens), 
+                         x = x_vals,
+                         y = sigmoid_modified(x_vals, x2 = x2_val, pop_dens = pop_dens,
+                                              xmid = xmid, scal = scal, b1 = beta_1,
+                                              alpha_0 = alpha_0, alpha_1 = alpha_1),
                          x2 = as.factor(round(x2_val, 2))
                        )
-                     }))
+                     })
+)
 
 
 # Interpolate y-values at x = 10 and x = 12.5
@@ -83,23 +95,14 @@ ggsave(here::here("plots/Sigmoid_Gini.png"), plot = p1, width = 15, height = 10,
 
 ################################################################################
 
-# Load required libraries
-library(plotly)
-
-# Define the modified sigmoid function
-sigmoid_modified <- function(x, xmid = 13800, scal = 11700, b1 = 6.3, x2, pop_dens = 270, alpha_0 = 7200, alpha_1 = -0.618) {
-  (alpha_0 + alpha_1 * pop_dens) * (1 / (1 + exp((xmid - x) / scal)))^(b1 * x2)
-}
-
-# Create grid of GDP_PPP (x) and Gini (x2) values
-x_vals <- seq(0, 125000, length.out = 200)
-x2_vals <- seq(0.1, 0.9, length.out = 100)
 
 # Create meshgrid
 grid <- expand.grid(x = x_vals, x2 = x2_vals)
 
 # Compute Energy Service values
-grid$z <- with(grid, sigmoid_modified(x, x2 = x2, pop_dens = 270))
+grid$z <- with(grid, sigmoid_modified(x_vals, x2 = x2, pop_dens = pop_dens,
+                                              xmid = xmid, scal = scal, b1 = beta_1,
+                                              alpha_0 = alpha_0, alpha_1 = alpha_1))
 
 # Reshape for plotly
 z_matrix <- matrix(grid$z, nrow = length(x2_vals), ncol = length(x_vals), byrow = TRUE)
@@ -127,9 +130,9 @@ htmlwidgets::saveWidget(fig, here::here("plots/energy_service_3d_plot.html"), se
 #################################
 
 # Define the modified sigmoid function
-sigmoid_modified <- function(x, x2, pop_dens, xmid = 13800, scal = 11700, b1 = 6.3, alpha_0 = 7200, alpha_1 = -0.618) {
-  (alpha_0 + alpha_1 * pop_dens) * (1 / (1 + exp((xmid - x) / scal)))^(b1 * x2)
-}
+# sigmoid_modified <- function(x, x2, pop_dens, xmid = 13800, scal = 11700, b1 = 6.3, alpha_0 = 7200, alpha_1 = -0.618) {
+#   (alpha_0 + alpha_1 * pop_dens) * (1 / (1 + exp((xmid - x) / scal)))^(b1 * x2)
+# }
 
 # Create grid of GDP_PPP (x) and Gini (x2) values
 x_vals <- seq(0, 125000, length.out = 200)
@@ -143,7 +146,9 @@ pop_dens_values <- seq(100, 500, length.out = 10)
 
 # Create frames for each population density
 frames <- lapply(pop_dens_values, function(pd) {
-  grid$z <- with(grid, sigmoid_modified(x, x2, pop_dens = pd))
+  grid$z <- with(grid, sigmoid_modified(x_vals, x2 = x2, 
+                                        xmid = xmid, scal = scal, b1 = beta_1,
+                                        alpha_0 = alpha_0, alpha_1 = alpha_1, pop_dens = pop_dens_values))
   z_matrix <- matrix(grid$z, nrow = length(x2_vals), ncol = length(x_vals), byrow = TRUE)
   list(
     data = list(list(z = z_matrix, type = "surface")),
@@ -153,7 +158,9 @@ frames <- lapply(pop_dens_values, function(pd) {
 
 # Initial frame
 initial_pd <- pop_dens_values[1]
-grid$z <- with(grid, sigmoid_modified(x, x2, pop_dens = initial_pd))
+grid$z <- with(grid, sigmoid_modified(x_vals, x2 = x2, 
+                                      xmid = xmid, scal = scal, b1 = beta_1,
+                                      alpha_0 = alpha_0, alpha_1 = alpha_1, pop_dens = initial_pd))
 z_matrix <- matrix(grid$z, nrow = length(x2_vals), ncol = length(x_vals), byrow = TRUE)
 
 # Create plot

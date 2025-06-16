@@ -4,7 +4,7 @@
 # SETUP: Clean Environment and Load Required Packages
 ################################################################################
 
-# Remove all objects from the workspace (use with caution!)
+# Remove all objects from the workspace (use with caution)
 rm(list = ls())
 
 # Define number of CPU cores for parallel installation
@@ -15,7 +15,7 @@ packages <- c(
   "dplyr", "minpack.lm", "tidyr", "purrr", "ggplot2", "nlme", "broom.mixed",
   "gt", "prophet", "readr", "here", "stargazer", "plotly", "lme4", "car",
   "sysfonts", "extrafont", "showtext", "stringr", "knitr", "kableExtra", "stargazer",
-  "nls2"
+  "nls2", "car", "future.apply", "texreg"
 )
 
 # Install missing packages
@@ -42,6 +42,7 @@ data <- readRDS("data/all_data_wem_espcap_imputation_wem_urban.rds") %>%
   arrange(country_id, year) %>%
   mutate(
     lag_ES_pcap = lag(ES_pcap, order_by = year),
+# Diving Gini by 100 to ensure stability of estimates    
     Gini_00 = Gini / 100,
     Gini_01 = gini_case1 / 100,
     Gini_02 = gini_case2 / 100,
@@ -50,7 +51,13 @@ data <- readRDS("data/all_data_wem_espcap_imputation_wem_urban.rds") %>%
   ) %>%
   ungroup()
 
+# Inspect data
 summary(data)
+
+# Display rows of data with NA values in density_psqkm
+# data %>%
+#   filter(is.na(density_psqkm)) %>%
+#   select(country_name, year, density_psqkm, GDP_PPP_pcap, ES_pcap)
 
 ################################################################################
 # BRAND PALETTE MERGE
@@ -60,7 +67,7 @@ summary(data)
 # shell.brand.palette <- readxl::read_excel(
 #   path = here::here("Data", "Shell Scenarios v14.6 2023_06_23.xlsm"),
 #   sheet = "Settings",
-#   range = "L10:M270",
+#   range = "L10:M270", # Change range according to the number of colours you need
 #   col_names = TRUE
 # ) %>%
 #   dplyr::select(-Colour)
@@ -80,10 +87,16 @@ shell.brand.palette <- readRDS(here::here("data", "shell_brand_palette_extended.
 data <- merge(shell.brand.palette, data, by = "country_id")
 
 ################################################################################
-# PLOT: Standardized theme
+# PLOT: Standardized theme for Scenarios
 ################################################################################
+# Create a named vector of colors for each country
+country_colors <- data %>%
+  select(country_name, Hex) %>%
+  distinct() 
 
-create_theme <- function(text_size = 14) {
+country_colors <- setNames(country_colors$Hex, country_colors$country_name)
+
+create_theme1 <- function(text_size = 14) {
   theme(
     axis.title.y = element_text(size = text_size, family = "ShellMedium, sans"),
     axis.title.x = element_text(size = text_size, family = "ShellMedium, sans"),
@@ -92,10 +105,10 @@ create_theme <- function(text_size = 14) {
     legend.position = c(1.05, 0.9),
     legend.text = element_text(size = text_size - 2, family = "ShellMedium, sans"),
     legend.title = element_blank(),
-    legend.background = element_rect(fill = "transparent", color = NA),
-    legend.key = element_rect(fill = "transparent", color = NA),
-    plot.background = element_rect(fill = "transparent", color = NA),
-    panel.background = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "white", color = NA),
+    legend.key = element_rect(fill = "white", color = NA),
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
     plot.title = element_text(size = text_size, family = "ShellMedium, sans", hjust = 0.5),
@@ -108,13 +121,37 @@ create_theme <- function(text_size = 14) {
     plot.margin = margin(t = 10, r = 10, b = 10, l = 10)
   )
 }
+# create_theme1 <- function(rel.size = 1) {
+#   theme(
+#     axis.title.y = element_text(size = 18 * rel.size, family = "ShellMedium"),
+#     axis.title.x = element_text(size = 18 * rel.size, family = "ShellMedium"),
+#     axis.text.y = element_text(size = 16 * rel.size, family = "ShellMedium"),
+#     axis.text.x = element_text(size = 16 * rel.size, family = "ShellMedium", angle = 45, hjust = 1),
+#     plot.margin = margin(5, 5, 5, 5),
+#     legend.title = element_text(size = 16 * rel.size, family = "ShellMedium"),
+#     legend.text = element_text(size = 15 * rel.size, family = "ShellMedium"),
+#     legend.position = "top",
+#     legend.background = element_rect(fill = "white", color = "black"),
+#     plot.background = element_rect(fill = "white"),
+#     panel.background = element_rect(fill = "white"),
+#     panel.grid.major = element_line(color = "gray", linetype = "dashed"),
+#     panel.grid.minor = element_blank(),
+#     plot.title = element_text(size = 18 * rel.size, family = "ShellMedium", hjust = 0.5),
+#     strip.text = element_text(size = 16 * rel.size, family = "ShellMedium"),
+#     strip.background = element_rect(fill = "lightgray", color = "black"),
+#     panel.border = element_blank()
+#   )
+# }
 
 ################################################################################
 # DATA FILTERING AND PREPARATION
 ################################################################################
-
 # Set seed for reproducibility
 set.seed(1234)
+
+# Global variables
+last.historical.year <- 2023 # Define the last year of historical data
+
 
 # Filter out countries with fewer than 2 non-missing values for key variables
 data <- data %>%
@@ -129,41 +166,14 @@ data <- data %>%
   mutate(Gini_noise = Gini + rnorm(1, mean = 0, sd = 0.01))
 
 # Subset historical data (up to and including 2023)
-last.historical.year <- 2023
 data1 <- data %>%
-  filter(year <= 2023)
+  filter(year <= last.historical.year)
 
 # Create a relative year variable (Year0) for modelling
 data1 <- data1 %>%
   group_by(country_name) %>%
   mutate(Year0 = year - min(year)) %>%
   ungroup()
-
-################################################################################
-# CUSTOM PLOTTING THEME FOR PRESENTATION
-################################################################################
-
-create_theme1 <- function(rel.size = 1) {
-  theme(
-    axis.title.y = element_text(size = 18 * rel.size, family = "ShellMedium"),
-    axis.title.x = element_text(size = 18 * rel.size, family = "ShellMedium"),
-    axis.text.y = element_text(size = 16 * rel.size, family = "ShellMedium"),
-    axis.text.x = element_text(size = 16 * rel.size, family = "ShellMedium", angle = 45, hjust = 1),
-    plot.margin = margin(5, 5, 5, 5),
-    legend.title = element_text(size = 16 * rel.size, family = "ShellMedium"),
-    legend.text = element_text(size = 15 * rel.size, family = "ShellMedium"),
-    legend.position = "top",
-    legend.background = element_rect(fill = "white", color = "black"),
-    plot.background = element_rect(fill = "white"),
-    panel.background = element_rect(fill = "white"),
-    panel.grid.major = element_line(color = "gray", linetype = "dashed"),
-    panel.grid.minor = element_blank(),
-    plot.title = element_text(size = 18 * rel.size, family = "ShellMedium", hjust = 0.5),
-    strip.text = element_text(size = 16 * rel.size, family = "ShellMedium"),
-    strip.background = element_rect(fill = "lightgray", color = "black"),
-    panel.border = element_blank()
-  )
-}
 
 ################################################################################
 # PLOT: GDP per Capita vs Energy Service per Capita
@@ -183,18 +193,143 @@ ggplotly(
       y = "Energy Service per Capita"
     ) +
     theme_minimal() +
-    create_theme1(1) +
+    create_theme1(14) +
     scale_color_identity() +
     scale_x_continuous(labels = scales::comma, trans = "log") +
     theme(legend.position = "none")
 )
 
 ################################################################################
-# EXCLUDE COUNTRIES FROM ESTIMATION
+# EXCLUDE COUNTRIES FROM ESTIMATION: FIND INFLUENTIAL VALUES AND/OR OUTLIERS AND
+# EXCLUDE FROM MODEL FITTING
+################################################################################
+
+# Fit the model
+model <- nls(ES_pcap ~ SSlogis(GDP_PPP_pcap, Asym, xmid, scal), data = data1)
+
+# Raw residuals
+res <- residuals(model)
+
+# Estimate standard deviation of residuals
+sigma <- summary(model)$sigma
+
+# Standardized residuals
+data1$std_residuals <- res / sigma
+
+# Plot standardized residuals
+ggplotly(ggplot(data1, aes(x = GDP_PPP_pcap, y = std_residuals)) +
+           geom_point(aes(colour = country_name), size = 1.5, alpha = 0.7) +
+           geom_hline(yintercept = c(-3, 3), linetype = "dashed", color = "red") + # +/- 3 standard deviations rule of thumb
+           labs(
+             title = "Standardized Residuals vs GDP per Capita",
+             x = "GDP per Capita",
+             y = "Standardized Residuals"
+           ) +
+           create_theme1(14) +
+           scale_color_manual(values = country_colors) +
+           theme(legend.position = "none"))
+
+
+# Identify high residuals
+high_residual_threshold <- 2  # or whatever threshold you choose
+data1$high_residual_flag <- abs(data1$std_residuals) > high_residual_threshold
+
+# Get country names with high residuals
+high_residual_flag <- unique(data1$country_name[data1$high_residual_flag])
+
+#########################################################################################
+# Calculate Cook's Distance for influential values
+#########################################################################################
+
+# # Define logistic function
+# logistic <- function(x, Asym, xmid, scal) {
+#   Asym / (1 + exp((xmid - x) / scal))
+# }
+# 
+# # Fit full model
+# full_model <- nls(ES_pcap ~ SSlogis(GDP_PPP_pcap, Asym, xmid, scal), data = data1)
+# full_pred <- predict(full_model)
+# n <- nrow(data1)
+# p <- length(coef(full_model))
+# mse <- mean(residuals(full_model)^2)
+# 
+# # # Initialize Cook's D vector - alternative : need not run, rather run parallel below
+# # cooks_d <- numeric(n)
+# # 
+# # # Loop through each observation
+# # for (i in 1:n) {
+# #   data_loo <- data1[-i, ]
+# #   tryCatch({
+# #     loo_model <- nls(ES_pcap ~ SSlogis(GDP_PPP_pcap, Asym, xmid, scal), data = data_loo)
+# #     loo_pred <- predict(loo_model, newdata = data1)
+# #     diff <- full_pred - loo_pred
+# #     cooks_d[i] <- sum(diff^2) / (p * mse)
+# #   }, error = function(e) {
+# #     cooks_d[i] <- NA
+# #   })
+# # }
+# 
+# # Set up parallel plan
+# plan(multisession)  # works on Windows
+# 
+# # Define the function for one iteration
+# compute_cook <- function(i) {
+#   data_loo <- data1[-i, ]
+#   tryCatch({
+#     loo_model <- nls(ES_pcap ~ SSlogis(GDP_PPP_pcap, Asym, xmid, scal), data = data_loo)
+#     loo_pred <- predict(loo_model, newdata = data1)
+#     diff <- full_pred - loo_pred
+#     sum(diff^2) / (p * mse)
+#   }, error = function(e) NA)
+# }
+# 
+# # Run in parallel
+# cooks_d <- future_sapply(1:n, compute_cook)
+# 
+# # Add to data frame and inspect
+# data1$Cooks_D <- cooks_d
+# print(head(data1[order(-data1$Cooks_D), ]))
+# 
+# plot(cooks_d, type = "h", main = "Cook's Distance", ylab = "Cook's D")
+# abline(h = 4 / n, col = "red", lty = 2)
+# 
+# # Save data1 to rds
+# saveRDS(data1, file = here::here("data", "data1_with_cooks_d.rds"))
+################################################################################
+
+data1 <- readRDS(here::here("data", "data1_with_cooks_d.rds"))
+# Cook's D threshold > 4/n
+
+threshold <- 4 / nrow(data1)
+
+# Identify high Cook's D
+high_residual_threshold <- threshold  # or whatever threshold you choose
+data1$high_cooksd_flag <- data1$Cooks_D > threshold
+
+high_cooksd_countries <- unique(data1$country_name[data1$high_cooksd_flag])
+
+# Plot Cook's D using ggplot2
+ggplotly(
+  ggplot(data1, aes(x = GDP_PPP_pcap, y = Cooks_D)) +
+    geom_point(aes(colour = country_name), size = 1.5, alpha = 0.7) +
+    geom_hline(yintercept = threshold, linetype = "dashed", color = "red") + # Threshold line
+    labs(
+      title = "Cook's Distance vs GDP per Capita",
+      x = "GDP per Capita",
+      y = "Cook's Distance"
+    ) +
+    create_theme1(14) +
+    scale_color_manual(values = country_colors) +
+    theme(legend.position = "none")
+)
+
+#################################################################################
+# Alternatives: Exclude countries based on historical WEM methodology
 ################################################################################
 
 # Define groups of countries to exclude
-oil_gas_countries <- c("Iran", "Malaysia", "Algeria", "Syria", "Sudan", "Ecuador", "Yemen", "Angola", "Nigeria", "Venezuela")
+oil_gas_countries <- c("Iran", "Malaysia", "Algeria", "Syria", "Sudan", 
+                       "Ecuador", "Yemen", "Angola", "Nigeria", "Venezuela")
 
 former_ussr_and_others <- c(
   "Russia", "Uzbekistan", "Belarus", "Poland", "Romania", "Ukraine", "Bulgaria",
@@ -210,6 +345,7 @@ rest_of_countries <- c(
   "Rest of South America", "Rest of Oceania"
 )
 
+# Ensure that the rest_of_countries vector is in title case to match with data set
 # Custom function to title-case while preserving all-uppercase words
 smart_title_case <- function(x) {
   sapply(strsplit(x, " "), function(words) {
@@ -229,12 +365,19 @@ rest_of_countries <- smart_title_case(rest_of_countries)
 
 excluded.countries <- c("Luxembourg", "United Arab Emirates", "Qatar", "Kuwait", "Libya", "Saudi Arabia", "Singapore")
 
-# Combine all into a single exclusion list
+# remove USA from high_cooksd_countries
+high_residual_flag_countries <- setdiff(high_residual_flag, "USA") # Want to include USA for saturation level
+high_cooksd_flag_countries <- setdiff(high_cooksd_countries, c("USA", "Canada", "Norway", "Switzerland")) # Want to include USA for saturation level
+
+# Combine all into a single exclusion list for which countries you wish to exclude from model fitting
 exclude.countries <- c(
   #oil_gas_countries,
   #former_ussr_and_others,
   #rest_of_countries,
-  excluded.countries
+  #excluded.countries,
+  high_cooksd_flag_countries
+  #high_residual_flag_countries,
+  
 )
 
 ################################################################################
@@ -299,7 +442,7 @@ summary(data1)
 # Check for non-finite values in each column
 sapply(data1, function(x) sum(!is.finite(x)))
 
-# Remove rows with missing lag_ES_pcap (required for Weibull 3)
+# Remove rows with missing lag_ES_pcap (required for models with lagged variables)
 data1 <- data1 %>%
   filter(!is.na(lag_ES_pcap))
 
@@ -311,212 +454,51 @@ sapply(data1, function(x) sum(!is.finite(x)))
 ################################################################################
 
 # Check for linear dependencies among predictors
-alias(lm(ES_pcap ~ GDP_PPP_pcap_thousands + d_bar + u_bar + 
+alias(lm(ES_pcap ~ GDP_PPP_pcap + d_bar + u_bar + 
            rising_income + falling_income + lag_ES_pcap, data = data1))
 
 ################################################################################
-# FIT LOGISTIC MODEL 4 USING nlsLM (INCLUDES LAGGED ES_pcap)
+# DEFINE LOGISTIC MODELS
 ################################################################################
 
-# multiple_logistic_model4 <- deriv(
-#   ~ (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap) / scal))) ^ (gamma_0 + gamma_1 * Gini),
-#   namevec = c("alpha_0", "alpha_1", "xmid", "scal", "gamma_0", "gamma_1"),
-#   function.arg = c("GDP_PPP_pcap", "density_psqkm", "alpha_0", "alpha_1", "xmid", "scal", "gamma_0", "gamma_1", "Gini")
-# )
-# 
-# 
-# 
-# nlslm_fit_logistic_4 <- nlsLM(
-#   ES_pcap ~ multiple_logistic_model4(GDP_PPP_pcap_thousands, density_psqkm, alpha_0, alpha_1, xmid, scal, gamma_0, gamma_1, Gini_01),
-#   data = data1,
-#   start = c(
-#     alpha_0 = 1000,
-#     alpha_1 = 0,
-#     xmid = 10000,
-#     scal = 2000,
-#     gamma_0 = 1,
-#     gamma_1 = 0.001
-#   ),
-#   # lower = c(
-#   #   alpha_0 = -Inf,
-#   #   alpha_1 = -Inf,
-#   #   alpha_2 = -Inf,
-#   #   k = 0,
-#   #   lambda = 0,
-#   #   gamma = 0
-#   # ),
-#   na.action = na.exclude,
-#   control = nls.lm.control(maxiter = 500)
-# )
-# 
-# # Display model summary
-# summary(nlslm_fit_logistic_4)
-# 
-# # Extract starting values from nlsLM fit
-# start_vals <- list(fixed = coef(nlslm_fit_logistic_4))
-# 
-# # # Fit nonlinear mixed-effects model with random effect on alpha_0
-# # fit_logistic_4_nlme <- nlme(
-# #   model = ES_pcap ~ multiple_logistic_model4(GDP_PPP_pcap_thousands, 
-# #           density_psqkm, alpha_0, alpha_1, xmid, scal, gamma_0, gamma_1, Gini_01),
-# #   data = data1,
-# #   fixed = alpha_0 + alpha_1 + xmid + scal + gamma_0 + gamma_1 ~ 1,
-# #   random = alpha_1 ~ 1 | country_id,  # Random effect on alpha_0
-# #   start = start_vals,
-# #   na.action = na.exclude,
-# #   control = nlmeControl(
-# #     pnlsTol = 0.5,
-# #     maxIter = 500,
-# #     minFactor = 1e-10,
-# #     msMaxIter = 500,
-# #     warnOnly = TRUE
-# #   )
-# # )
-# # 
-# # summary(fit_logistic_4_nlme)
-# # 
-# # fit_weibull_4 <- fit_logistic_4_nlme
-# 
-# ####################################################
-# 
-# multiple_logistic_model_4 <- deriv(
-#   ~ ((a0 + a1 * density_psqkm) / (1 + exp((xmid - GDP_PPP_pcap) / scal))) * exp(b1 * Gini),
-#   namevec = c("a0", "a1", "xmid", "scal", "b1"),
-#   function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "a0", "a1", "xmid", "scal", "b1")
-# )
-# 
-# nlslm_fit_logistic_4 <- nlsLM(
-#   ES_pcap ~ multiple_logistic_model_4(GDP_PPP_pcap_thousands, density_psqkm, Gini_01, a0, a1, xmid, scal, b1),
-#   data = data1,
-#   start = c(a0 = 5000, a1 = 10, xmid = 10000, scal = 1000, b1 = 0.001),
-#   # lower = c(
-#   #   alpha_0 = -Inf,
-#   #   alpha_1 = -Inf,
-#   #   alpha_2 = -Inf,
-#   #   k = 0,
-#   #   lambda = 0,
-#   #   gamma = 0
-#   # ),
-#   na.action = na.exclude,
-#   control = nls.lm.control(maxiter = 500)
-# )
-# 
-# # Display model summary
-# summary(nlslm_fit_logistic_4)
-# 
-# # Extract starting values from nlsLM fit
-# start_vals <- list(fixed = coef(nlslm_fit_logistic_4))
-# 
-# # Fit nonlinear mixed-effects model with random effect on alpha_0
-# fit_logistic_4_nlme <- nlme(
-#   model = ES_pcap ~ multiple_logistic_model_4(GDP_PPP_pcap_thousands, density_psqkm, Gini_01, a0, a1, xmid, scal, b1),
-#   data = data1,
-#   fixed = a0 + a1 + xmid + scal + b1 ~ 1,
-#   random = a0 ~ 1 | country_id,  # Random effect on alpha_0
-#   start = start_vals,
-#   na.action = na.exclude,
-#   control = nlmeControl(
-#     pnlsTol = 0.5,
-#     maxIter = 500,
-#     minFactor = 1e-10,
-#     msMaxIter = 500,
-#     warnOnly = TRUE
-#   )
-# )
-# 
-# summary(fit_logistic_4_nlme)
-# 
-# fit_weibull_4 <- fit_logistic_4_nlme #nlslm_fit_logistic_4 #fit_logistic_4_nlme
-
-################################################################################
-# FIT LOGISTIC MODELS
-################################################################################
-
-# logistic_model_1 <- deriv(
-#   ~ (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((GDP_PPP_pcap - xmid)/ scal))),
-#   namevec = c("alpha_0", "alpha_1", "xmid", "scal"),
-#   function.arg = c("GDP_PPP_pcap", "density_psqkm", "alpha_0", "alpha_1", "xmid", "scal")
-# )
-
+# Logistic without Gini
 logistic_model_1 <- deriv(
   ~ (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap)/ scal))),
   namevec = c("alpha_0", "alpha_1", "xmid", "scal"),
   function.arg = c("GDP_PPP_pcap", "density_psqkm", "alpha_0", "alpha_1", "xmid", "scal")
 )
 
-# Set parameter values
-alpha_0 <- 20000
-alpha_1 <- -0.15
-xmid <- 25000
-scal <- 45500
+# Simple Logistic with Gini: Amplify/ dampens the effect of GDP_PPP_pcap on ES_pcap
+logistic_model_2 <- deriv(
+  ~ (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap)/scal)))^(beta_1 * Gini),
+  namevec = c("alpha_0", "alpha_1", "xmid", "scal", "beta_1"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "alpha_0", "alpha_1", "xmid", "scal", "beta_1")
+)
 
-# Create a grid of values
-GDP_PPP_pcap_vals <- seq(10000, 100000, length.out = 100)
-density_vals <- seq(10, 1000, length.out = 100)
-grid <- expand.grid(GDP_PPP_pcap = GDP_PPP_pcap_vals, density_psqkm = density_vals)
+logistic_model_3 <- deriv(
+  ~ (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap)/scal)))^(beta_1 * Gini + beta_0),
+  namevec = c("alpha_0", "alpha_1", "xmid", "scal", "beta_1", "beta_0"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "alpha_0", "alpha_1", "xmid", "scal", "beta_1", "beta_0")
+)
 
-# Compute model values
-grid$logistic_value <- with(grid, logistic_model_1(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal))
+logistic_model_4 <- deriv(
+  ~ (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap)/(scal + beta_1 * Gini)))),
+  namevec = c("alpha_0", "alpha_1", "xmid", "scal", "beta_1"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "alpha_0", "alpha_1", "xmid", "scal", "beta_1")
+)
 
-# Plot using ggplot2
-ggplot(grid, aes(x = GDP_PPP_pcap, y = density_psqkm, z = logistic_value)) +
-  geom_contour_filled() +
-  scale_fill_viridis_d() +
-  labs(
-    title = "Logistic Model Visualization",
-    x = "GDP_PPP_pcap",
-    y = "Population Density (per sq km)",
-    fill = "Model Output"
-  ) +
-  theme_minimal()
-
-################################################################################
-# EVALUATE MODEL OVER A GRID OF VALUES
-################################################################################
-
-# Define the logistic model function
-logistic_model <- function(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal) {
-  (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((GDP_PPP_pcap - xmid) / scal)))
-}
-
-logistic_model <- function(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal) {
-  (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp(-(xmid - GDP_PPP_pcap) / scal)))
-}
-
-# Set parameter values
-alpha_0 <- 15000
-alpha_1 <- -0.15
-xmid <- 50000
-scal <- 45000
-
-# Create sequences
-GDP_PPP_pcap_vals <- seq(10000, 100000, length.out = 100)
-density_vals <- seq(10, 1000, length.out = 100)
-
-# Create grid and compute z values
-z_vals <- outer(density_vals, GDP_PPP_pcap_vals, Vectorize(function(d, gdp) {
-  logistic_model(gdp, d, alpha_0, alpha_1, xmid, scal)
-}))
-
-# Create interactive 3D surface plot
-(plot1 <- plot_ly(
-  x = ~density_vals,
-  y = ~GDP_PPP_pcap_vals,
-  z = ~z_vals
-) %>%
-  add_surface() %>%
-  layout(
-    title = "Interactive 3D Surface Plot of Logistic Model",
-    scene = list(
-      xaxis = list(title = "Population Density (per sq km)"),
-      yaxis = list(title = "GDP PPP per Capita"),
-      zaxis = list(title = "ES per capita")
-    )
-  ))
-
-htmlwidgets::saveWidget(plot1, here::here("plots/logistic_model_1_plot.html"))
+logistic_model_5 <- deriv(
+  ~ (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap)/scal)))^(beta_1 * Gini) +
+    phi_0 * lag_ES_pcap,
+  namevec = c("alpha_0", "alpha_1", "xmid", "scal", "beta_1", "phi_0"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "lag_ES_pcap", "alpha_0", "alpha_1", "xmid", "scal", "beta_1", "phi_0")
+)
 
 ################################################################################
+# FIT LOGISTIC MODELS
+################################################################################
+
+# 1. Logistic without Gini
 summary(data1[, c("ES_pcap", "GDP_PPP_pcap", "density_psqkm")])
 
 # Display rows with NA values in ES_pcap
@@ -524,11 +506,10 @@ data1 %>%
   filter(is.na(ES_pcap)) %>%
   select(country_name, year, ES_pcap, GDP_PPP_pcap, density_psqkm)
 
-################################################################################
-# Fit the model using nls2 with brute-force algorithm
+# Use nls2() to explore a wide range of starting values, then refine the best fit 
+# with nlsLM() for robust and bounded optimization.
 nls2_fit <- nls2(
-  ES_pcap ~ logistic_model_1(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal),#(alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((GDP_PPP_pcap - xmid)/scal))),
-  data = data1,
+  ES_pcap ~ logistic_model_1(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal), data = data1,
   start = data.frame(
     alpha_0 = seq(1000, 50000, length.out = 10),
     alpha_1 = seq(-10, 10, length.out = 10),
@@ -540,40 +521,6 @@ nls2_fit <- nls2(
 
 summary(nls2_fit)
 
-# start_grid_refined <- expand.grid(
-#   alpha_0 = seq(500, 1500, length.out = 5),
-#   alpha_1 = seq(-600, -400, length.out = 5),
-#   xmid = seq(500, 2000, length.out = 5),
-#   scal = seq(500, 2000, length.out = 5)
-# )
-# Fit the model using nlsLM with refined starting values
-
-# nls2_fit <- nls2(
-#   ES_pcap ~ logistic_model_1(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal),#(alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((GDP_PPP_pcap - xmid)/scal))),
-#   data = data1,
-#   start = start_grid_refined,
-#   algorithm = "brute-force"
-# )
-
-# nlslm_fit_logistic_1 <- nlsLM(
-#   ES_pcap ~ logistic_model_1(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal),
-#   data = data1,
-#   start = c(a0 = 23000, a1 = -55, xmid = 34000, scal = 32000),
-#   # lower = c(
-#   #   alpha_0 = -Inf,
-#   #   alpha_1 = -Inf,
-#   #   alpha_2 = -Inf,
-#   #   k = 0,
-#   #   lambda = 0,
-#   #   gamma = 0
-#   # ),
-#   na.action = na.exclude,
-#   control = nls.lm.control(maxiter = 500)
-# )
-# 
-# # Display model summary
-# summary(nlslm_fit_logistic_1)
-# 
 # fit2a <- nls(
 #   ES_pcap ~ logistic_model_1(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal),
 #   data = data1,
@@ -586,12 +533,12 @@ summary(nls2_fit)
 # )
 
 # Extract starting values from nlsLM fit
-start_vals <- list(fixed = coef(nls2_fit))
+# start_vals <- list(fixed = coef(nls2_fit))
 
 best_start_vals <- as.list(coef(nls2_fit))
 
 
-# Fit the model using nlsLM with starting values
+# Fit the model using nlsLM with starting values from nls2 
 nlsLM_fit <- nlsLM(
   ES_pcap ~ logistic_model_1(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal),
   data = data1,
@@ -599,52 +546,59 @@ nlsLM_fit <- nlsLM(
   control = nls.lm.control(maxiter = 500, ftol = 1e-8)
 )
 
-
 summary(nlsLM_fit)
+
+# Residual analysis
 plot(residuals(nls2_fit))
 plot(residuals(nlsLM_fit))
+# Appears that nlsM_fit is better
 
-fit_weibull_4 <- nlsLM_fit
+# fit_weibull_4 <- nlsLM_fit
+# 
+# # Struggling to converge - not enough variation
+# fit_logistic_1_nlme <- nlme(
+#   model = ES_pcap ~ logistic_model_1(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal),
+#   data = data1,
+#   fixed = alpha_0 + alpha_1 + xmid + scal ~ 1,
+#   random = alpha_0 ~ 1 | country_id,  # Random effect on alpha_0
+#   start = start_vals,
+#   na.action = na.exclude,
+#   control = nlmeControl(
+#     pnlsTol = 0.5,
+#     maxIter = 500,
+#     minFactor = 1e-10,
+#     msMaxIter = 500,
+#     warnOnly = TRUE
+#   )
+# )
 
-# Struggling to converge - not enough variation
-fit_logistic_1_nlme <- nlme(
-  model = ES_pcap ~ logistic_model_1(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal),
-  data = data1,
-  fixed = alpha_0 + alpha_1 + xmid + scal ~ 1,
-  random = alpha_0 ~ 1 | country_id,  # Random effect on alpha_0
-  start = start_vals,
-  na.action = na.exclude,
-  control = nlmeControl(
-    pnlsTol = 0.5,
-    maxIter = 500,
-    minFactor = 1e-10,
-    msMaxIter = 500,
-    warnOnly = TRUE
-  )
-)
+# summary(fit_logistic_1_nlme)
 
-summary(fit_logistic_1_nlme)
+(bicmodel1_1 <- BIC(nls2_fit))
+(bicmodel1_2 <- BIC(nlsLM_fit))
 
-bicmodel1 <- BIC(fit_weibull_4)
-
+# Fit stats of best fitting model
 fit_stats1 <- data.frame(
-  Model = "Logistic 1",
-  AIC = AIC(fit_weibull_4),
-  BIC = BIC(fit_weibull_4)#,
+  Model = "Logistic 1: Without Gini",
+  AIC = AIC(nlsLM_fit),
+  BIC = BIC(nlsLM_fit)#,
   #R_squared = summary(fit_weibull_4)$r.squared
 )
-# Create a kable table for model fit statistics
-kable(fit_stats1, digits = 3, caption = "Model Fit Statistics for Logistic 1 Model") %>%
-  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
-  save_kable(here::here("results/model_fit_statistics_logistic_1.html"))
 
+# combine all fit stats into a table
+# Create a kable table for model fit statistics
+# kable(fit_stats1, digits = 3, caption = "Model Fit Statistics: Logistic 1 Model wo Gini") %>%
+#   kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+#   save_kable(here::here("results/model_fit_statistics_logistic_1.html"))
 
 ################################################################################
 # CHECKING FOR NEGATIVE MATURITY TERMS
 ################################################################################
 
+model_chosen_1 <- nlsLM_fit
+
 # Extract estimated coefficients from the fitted model
-coefs <- coef(fit_weibull_4)
+coefs <- coef(model_chosen_1)
 
 # Compute the maturity term for each observation
 maturity_term <- with(data1, coefs["alpha_0"] + coefs["alpha_1"] * density_psqkm)
@@ -659,12 +613,12 @@ cat("Any negative maturity terms? ", any_negative, "\n")
 cat("Number of negative values: ", num_negative, "\n")
 
 ################################################################################
-# COPY MODEL PARAMETERS TO CLIPBOARD (WINDOWS ONLY)
+# COPY MODEL PARAMETERS TO CLIPBOARD 
 ################################################################################
 
-# Extract parameters from the fitted model and copy to clipboard
-parameters <- coef(fit_weibull_4)
-write.table(parameters, file = "clipboard", sep = "\t", row.names = TRUE, col.names = TRUE)
+# # Extract parameters from the fitted model and copy to clipboard
+# parameters <- coef(model_chosen_1)
+# write.table(parameters, file = "clipboard", sep = "\t", row.names = TRUE, col.names = TRUE)
 
 ################################################################################
 # MODEL DIAGNOSTICS: PREPARE DATA
@@ -676,24 +630,14 @@ write.table(parameters, file = "clipboard", sep = "\t", row.names = TRUE, col.na
 #   "rising_income", "falling_income", "lag_ES_pcap"
 # )])
 
-
+# Prepare for in sample model diagnostics
 model_data <- 
   data1[complete.cases(data1[, c(
-    "ES_pcap", "GDP_PPP_pcap_thousands", "density_psqkm", "Gini_01"
+    "ES_pcap", "GDP_PPP_pcap", "density_psqkm", "Gini_01"
   )]), ]
 
-
-
-# Optionally, use full dataset instead (commented out)
-# full_model_data <- na.omit(full.dataset[, c(
-#   "ES_pcap", "GDP_PPP_pcap_thousands", "d_bar", "u_bar",
-#   "rising_income", "falling_income", "lag_ES_pcap"
-# )]) %>%
-#   filter(!is.na(lag_ES_pcap))
-# model_data <- full_model_data
-
 # Add model predictions and residuals
-model_data$predicted <- predict(fit_weibull_4, level = 0)
+model_data$predicted <- predict(model_chosen_1, level = 0) # Level =1 if random effects
 model_data$residuals <- model_data$ES_pcap - model_data$predicted
 
 ################################################################################
@@ -775,15 +719,15 @@ hist(
 # TIDY MODEL OUTPUT AND DISPLAY AS HTML TABLE
 ################################################################################
 
-fit1 <- fit_weibull_4 #fit_weibull_4  # Replace with your fitted model if needed
+fit1 <- model_chosen_1 #fit_weibull_4  # Replace with your fitted model if needed
 # Tidy the model output (example shown with `fit1`; replace with your model if needed)
-tidy_fit <- broom.mixed::tidy(fit1)
+tidy_fit1 <- broom.mixed::tidy(fit1)
 
 
 # Save to HTML file
-kable(tidy_fit, digits = 3, caption = "Summary of Non-linear Model") %>%
-  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
-  save_kable(here::here("results/tidy_model_summary_logistic1.html"))
+# kable(tidy_fit, digits = 3, caption = "Summary of Non-linear Model") %>%
+#   kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+#   save_kable(here::here("results/tidy_model_summary_logistic1.html"))
 
 ################################################################################
 # EXPORT MODEL SUMMARY USING STARGAZER
@@ -824,18 +768,13 @@ kable(tidy_fit, digits = 3, caption = "Summary of Non-linear Model") %>%
 ################################################################################
 
 # Assign the chosen model to a generic variable for clarity
-fit <- fit_weibull_4#fit_weibull_4
+fit <- model_chosen_1#fit_weibull_4
 
-# Prepare dataset for prediction: remove rows with missing values in key variables
-data1_model <- full.dataset[complete.cases(full.dataset[, c(
-  "ES_pcap", "GDP_PPP_pcap_thousands", "d_bar", "u_bar",
-  "rising_income", "falling_income", "lag_ES_pcap"
-)]), ]
-
+# Prepare dataset for prediction including out of sample: 
+# remove rows with missing values in key variables included in equation
 data1_model <- full.dataset[complete.cases(full.dataset[, c(
   "ES_pcap", "GDP_PPP_pcap_thousands", "density_psqkm", "Gini_01"
 )]), ]
-
 
 # Generate predictions using the fitted model
 data1_model$predicted_ES_pcap <- predict(fit, newdata = data1_model, level = 0)
@@ -851,7 +790,7 @@ data1_model$residuals <- data1_model$ES_pcap - data1_model$predicted_ES_pcap
 ################################################################################
 
 # 1. Actual vs. Predicted ES_pcap
-ggplot(data1_model, aes(x = ES_pcap, y = predicted_ES_pcap, color = country_name)) +
+ggplotly(ggplot(data1_model, aes(x = ES_pcap, y = predicted_ES_pcap, color = country_name)) +
   geom_point(alpha = 0.5) +
   geom_abline(slope = 1, intercept = 0, color = "red") +
   labs(
@@ -860,7 +799,7 @@ ggplot(data1_model, aes(x = ES_pcap, y = predicted_ES_pcap, color = country_name
     y = "Predicted ES_pcap"
   ) +
   theme_minimal() +
-  theme(legend.position = "none")
+  theme(legend.position = "none"))
 
 # 1.A Plot standardized residuals vs. fitted values
 # standardize residuals
@@ -943,7 +882,7 @@ ggplot(data1_model, aes(x = year, y = ES_pcap)) +
 
 # Step 1: Filter future data (optional filter by country or year)
 future_data <- data %>%
-  filter(year >= 2024)
+  filter(year >= (last.historical.year + 1))
 
 # Step 2: Prepare dataset for forecasting
 # Set lag_ES_pcap to NA for years >= 2024 to simulate unknown future values
@@ -953,7 +892,7 @@ predictions_data <- data %>%
 # Step 3: Initialize variables
 predictions <- list()  # To store predictions if needed
 data.orig <- data.frame(predictions_data)  # Working copy of the dataset
-model <- fit_weibull_4 #fit_weibull_4  # Fitted nlsLM model
+model <- model_chosen_1 #fit_weibull_4  # Fitted nlsLM model
 
 ################################################################################
 # ITERATIVE FORECAST LOOP: YEAR-BY-YEAR PREDICTION
@@ -996,9 +935,9 @@ model <- fit_weibull_4 #fit_weibull_4  # Fitted nlsLM model
 # Extract known country_ids from the fitted model
 known_ids <- unique(model$groups$country_id)
 
-# Get base year value of ES_pcap per country_id
+# Get base year value of ES_pcap per country_id for calculation of offset
 base_year_values <- data.orig %>%
-  filter(year == 2023) %>%
+  filter(year == last.historical.year) %>%
   select(country_id, ES_pcap)
 
 for (i in 2024:2100) {
@@ -1048,7 +987,6 @@ for (i in 2024:2100) {
     select(-predicted_ES_pcap)
 }
 
-
 ################################################################################
 # FINALIZE FORECASTED DATASET
 ################################################################################
@@ -1058,12 +996,12 @@ predictions_data <- data.orig %>%
   arrange(country_id, year)
 
 # Calculate offset value by letting model predict 2023 values (base year) and calculate difference with actual
-base_year_values <- predict(model, newdata = data.orig %>% filter(year == 2023), level = 1) %>%
-  data.frame(country_id = data.orig$country_id[data.orig$year == 2023], ES_pcap = .)
+base_year_values <- predict(model, newdata = data.orig %>% filter(year == last.historical.year), level = 0) %>%
+  data.frame(country_id = data.orig$country_id[data.orig$year == last.historical.year], ES_pcap = .)
 
 # Calculate offset value given difference between base_year value and model prediction
 offset_values <- base_year_values %>%
-  left_join(predictions_data %>% filter(year == 2023) %>% select(country_id, ES_pcap), by = "country_id") %>%
+  left_join(predictions_data %>% filter(year == last.historical.year) %>% select(country_id, ES_pcap), by = "country_id") %>%
   mutate(offset = ES_pcap.y - ES_pcap.x) %>%
   select(country_id, offset)
 
@@ -1071,8 +1009,8 @@ offset_values <- base_year_values %>%
 predictions_data <- predictions_data %>%
   left_join(offset_values, by = "country_id") %>%
   mutate(
-    ES_pcap = if_else(year >= 2024, ES_pcap + offset, ES_pcap),
-    lag_ES_pcap = if_else(year >= 2024, lag(ES_pcap), lag_ES_pcap)
+    ES_pcap = if_else(year > last.historical.year, ES_pcap + offset, ES_pcap),
+    lag_ES_pcap = if_else(year > last.historical.year, lag(ES_pcap), lag_ES_pcap)
   ) %>%
   select(-offset)
 
@@ -1082,20 +1020,8 @@ predictions_data <- predictions_data %>%
 
 # Step 1: Extract future data (from 2024 onward) and assign predicted ES_pcap
 future_data <- predictions_data %>%
-  filter(year >= 2024) %>%
+  filter(year > last.historical.year) %>%
   mutate(predicted_ES_pcap = ES_pcap)
-
-################################################################################
-# EXPORT SELECTED COUNTRY DATA (e.g., Libya) TO CLIPBOARD
-################################################################################
-# Step 2: Extract Libya's forecast data for review or export
-selected.libya <- future_data %>%
-  filter(country_name == "Libya") %>%
-  select(country_name, year, d_bar, u_bar, rising_income, falling_income, 
-         lag_ES_pcap, GDP_PPP_pcap_thousands, ES_pcap)
-
-# Copy to clipboard (Windows only)
-write.table(selected.libya, file = "clipboard", sep = "\t", row.names = FALSE, col.names = TRUE)
 
 ################################################################################
 # COMBINE HISTORICAL AND PREDICTED DATA FOR VISUALIZATION
@@ -1103,7 +1029,7 @@ write.table(selected.libya, file = "clipboard", sep = "\t", row.names = FALSE, c
 
 # Step 3: Select relevant columns from historical and future datasets
 selected1 <- data.orig %>%
-  filter(year < 2024) %>%
+  filter(year <= last.historical.year) %>%
   ungroup() %>%
   select(country_name, GDP_PPP_pcap, ES_pcap, year, Hex)
 
@@ -1114,22 +1040,11 @@ selected2 <- future_data %>%
 # Step 4: Combine and label data
 aggregated.data <- rbind(selected1, selected2) %>%
   arrange(country_name, year) %>%
-  mutate(line_type = if_else(year <= 2023, "Historical", "Predicted"))
+  mutate(line_type = if_else(year <= last.historical.year, "Historical", "Predicted"))
 
 # Step 5: Split into historical and predicted subsets
 historical_data <- aggregated.data %>% filter(line_type == "Historical")
 predicted_data  <- aggregated.data %>% filter(line_type == "Predicted")
-
-################################################################################
-# DEFINE COUNTRY COLORS FOR CONSISTENT PLOTTING
-################################################################################
-
-# Create a named vector of colors for each country
-country_colors <- historical_data %>%
-  select(country_name, Hex) %>%
-  distinct() 
-
-country_colors <- setNames(country_colors$Hex, country_colors$country_name)
 
 ################################################################################
 # CREATE PLOT: GDP vs. ES_pcap (Historical vs. Predicted)
@@ -1172,14 +1087,14 @@ p1 <- ggplot() +
   ) +
   scale_color_manual(values = country_colors) +
   labs(
-    title = "Predicted Energy Service per Capita using Logistic 1 Model",
+    title = "Predicted Energy Service per Capita using Logistic 1 Model without Gini",
     x = "GDP per capita (USD)",
     y = "Energy Service per Capita (passenger km / capita)",
     color = "Country",
     linetype = "Data Type"
   ) +
   theme_minimal() +
-  create_theme(16) +
+  create_theme1(16) +
   scale_x_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k")) +
   scale_y_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k"))
 
@@ -1232,97 +1147,7 @@ ggsave(
 # FIT LOGISTIC 2 MODEL
 ################################################################################
 
-logistic_model_2 <- deriv(
-  ~ (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap)/scal)))^(beta_1 * Gini),
-  namevec = c("alpha_0", "alpha_1", "xmid", "scal", "beta_1"),
-  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "alpha_0", "alpha_1", "xmid", "scal", "beta_1")
-)
-
-# Set parameter values
-alpha_0 <- 20000
-alpha_1 <- -0.15
-xmid <- 25000
-scal <- 45500
-beta_1 <- 0.05
-
-# Create a grid of values
-GDP_PPP_pcap_vals <- seq(10000, 100000, length.out = 100)
-density_vals <- seq(10, 1000, length.out = 100)
-gini_vals <- seq(0, 1, length.out = 100)
-grid <- expand.grid(GDP_PPP_pcap = GDP_PPP_pcap_vals, density_psqkm = density_vals, Gini = gini_vals)
-
-# Compute model values
-grid$logistic_value <- with(grid, logistic_model_2(GDP_PPP_pcap, density_psqkm, Gini, alpha_0, alpha_1, xmid, scal, beta_1))
-
-# Plot using ggplot2
-ggplot(grid, aes(x = GDP_PPP_pcap, y = density_psqkm, z = logistic_value)) +
-  geom_contour_filled() +
-  scale_fill_viridis_d() +
-  labs(
-    title = "Logistic Model Visualization",
-    x = "GDP_PPP_pcap",
-    y = "Population Density (per sq km)",
-    fill = "Model Output"
-  ) +
-  theme_minimal()
-
-################################################################################
-# EVALUATE MODEL OVER A GRID OF VALUES
-################################################################################
-
-# Define the logistic model function
-logistic_model2 <- function(GDP_PPP_pcap, density_psqkm, Gini, alpha_0, alpha_1, xmid, scal, beta_1) {
-  base <- (alpha_0 + alpha_1 * density_psqkm)
-  logistic_component <- 1 / (1 + exp((xmid - GDP_PPP_pcap) / scal))
-  return(base * logistic_component^(beta_1 * Gini))
-}
-
-# Set parameter values
-alpha_0 <- 15000
-alpha_1 <- -0.15
-xmid <- 50000
-scal <- 45000
-beta_1 <- 0.005
-Gini <- 0.4  # Fixed Gini coefficient for visualization
-
-# Create sequences
-GDP_PPP_pcap_vals <- seq(10000, 100000, length.out = 100)
-density_vals <- seq(10, 1000, length.out = 100)
-
-# Create grid and compute z values
-z_vals <- outer(density_vals, GDP_PPP_pcap_vals, Vectorize(function(d, gdp) {
-  logistic_model2(gdp, d, Gini, alpha_0, alpha_1, xmid, scal, beta_1)
-}))
-
-# Create interactive 3D surface plot
-plot_ly(
-  x = ~density_vals,
-  y = ~GDP_PPP_pcap_vals,
-  z = ~z_vals
-) %>%
-  add_surface() %>%
-  layout(
-    title = "Interactive 3D Surface Plot of Logistic Model",
-    scene = list(
-      xaxis = list(title = "Population Density (per sq km)"),
-      yaxis = list(title = "GDP PPP per Capita"),
-      zaxis = list(title = "ES per capita")
-    )
-  )
-
-
-htmlwidgets::saveWidget(plot1, here::here("plots/logistic_model_2_plot.html"))
-
-###############################################################################################
-# logistic_model_2 <- function(GDP_PPP_pcap, density_psqkm, Gini, alpha_0, alpha_1, xmid, scal, beta_1) {
-#   base <- alpha_0 + alpha_1 * density_psqkm
-#   logistic_component <- 1 / (1 + exp((xmid - GDP_PPP_pcap) / scal))
-#   logistic_component <- pmax(logistic_component, 1e-8)  # Avoid zero or negative values
-#   result <- base * logistic_component^(beta_1 * Gini)
-#   if (any(is.nan(result) | is.infinite(result))) return(NA)
-#   return(result)
-# }
-
+# Check for invalid combinations
 # Create parameter grid
 param_grid <- expand.grid(
   alpha_0 = seq(100, 75000, length.out = 10),
@@ -1360,58 +1185,55 @@ valid_combinations <- apply(param_grid, 1, test_combination)
 bad_params <- param_grid[!valid_combinations, ]
 head(bad_params)
 
-################################################################################
-summary(data1[, c("ES_pcap", "GDP_PPP_pcap", "density_psqkm", "Gini_01")])
+####################################################################################
+# Fit the Logistic 2 model using nls2 with a wide range of starting values
+####################################################################################
 
-# Display rows with NA values in ES_pcap
-data1 %>%
-  filter(is.na(ES_pcap)|is.na(density_psqkm)|is.na(GDP_PPP_pcap)|is.na(Gini_01)) %>%
-  select(country_name, year, ES_pcap, GDP_PPP_pcap, density_psqkm)
-
-nls2_fit <- nls2(
+nls2_fit_2 <- nls2(
   ES_pcap ~ logistic_model_2(GDP_PPP_pcap, density_psqkm, Gini_01, alpha_0, alpha_1, xmid, scal, beta_1),
   data = data1,
   start = expand.grid(
     alpha_0 = seq(100, 75000, length.out = 5),
-    alpha_1 = seq(-10, 10, length.out = 5),
+    alpha_1 = seq(-20, 20, length.out = 5),
     xmid = seq(10000, 70000, length.out = 5),
     scal = seq(0, 100000, length.out = 5),
-    beta_1 = seq(0, 5, length.out = 5)
+    beta_1 = seq(-15, 15, length.out = 5)
   ),
   algorithm = "brute-force"
 )
 
-summary(nls2_fit)
+summary(nls2_fit_2)
 
-best_start_vals <- as.list(coef(nls2_fit))
-
+best_start_vals <- as.list(coef(nls2_fit_2))
 
 # Fit the model using nlsLM with starting values
-nlsLM_fit <- nlsLM(
+nlsLM_fit_2 <- nlsLM(
   ES_pcap ~ logistic_model_2(GDP_PPP_pcap, density_psqkm, Gini_01, alpha_0, alpha_1, xmid, scal, beta_1),
   data = data1,
   start = best_start_vals,
   control = nls.lm.control(maxiter = 500, ftol = 1e-8)
 )
 
+summary(nlsLM_fit_2)
+# Residual analysis
+plot(residuals(nls2_fit_2))
+plot(residuals(nlsLM_fit_2))
 
-summary(nlsLM_fit)
-plot(residuals(nlsLM_fit))
-
-fit_weibull_4 <- nlsLM_fit
-
-bicmodel2 <- BIC(fit_weibull_4)
+model_chosen_2 <- nlsLM_fit_2
 
 fit_stats2 <- data.frame(
-  Model = "Logistic 2",
-  AIC = AIC(fit_weibull_4),
-  BIC = BIC(fit_weibull_4)#,
+  Model = "Logistic 2: Simple with Gini",
+  AIC = AIC(model_chosen_2),
+  BIC = BIC(model_chosen_2)#,
   #R_squared = summary(fit_weibull_4)$r.squared
 )
+
+fit_stats_logistic <- rbind(fit_stats1, fit_stats2)
+
 # Create a kable table for model fit statistics
-kable(fit_stats2, digits = 3, caption = "Model Fit Statistics for Logistic 2 Model") %>%
-  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
-  save_kable(here::here("results/model_fit_statistics_logistic_2.html"))
+# kable(fit_stats2, digits = 3, caption = "Model Fit Statistics for Logistic 2 Model") %>%
+#   kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+#   save_kable(here::here("results/model_fit_statistics_logistic_2.html"))
 
 
 ################################################################################
@@ -1419,7 +1241,7 @@ kable(fit_stats2, digits = 3, caption = "Model Fit Statistics for Logistic 2 Mod
 ################################################################################
 
 # Extract estimated coefficients from the fitted model
-coefs <- coef(fit_weibull_4)
+coefs <- coef(model_chosen_2)
 
 # Compute the maturity term for each observation
 maturity_term <- with(data1, coefs["alpha_0"] + coefs["alpha_1"] * density_psqkm)
@@ -1438,37 +1260,20 @@ cat("Number of negative values: ", num_negative, "\n")
 ################################################################################
 
 # Extract parameters from the fitted model and copy to clipboard
-parameters <- coef(fit_weibull_4)
-write.table(parameters, file = "clipboard", sep = "\t", row.names = TRUE, col.names = TRUE)
+# parameters <- coef(fit_weibull_4)
+# write.table(parameters, file = "clipboard", sep = "\t", row.names = TRUE, col.names = TRUE)
 
 ################################################################################
 # MODEL DIAGNOSTICS: PREPARE DATA
 ################################################################################
-
-# Create a clean dataset used in the model (omit rows with missing values)
-# model_data <- na.omit(data1[, c(
-#   "ES_pcap", "GDP_PPP_pcap_thousands", "d_bar", "u_bar",
-#   "rising_income", "falling_income", "lag_ES_pcap"
-# )])
-
-
 model_data <- 
   data1[complete.cases(data1[, c(
-    "ES_pcap", "GDP_PPP_pcap_thousands", "density_psqkm", "Gini_01"
+    "ES_pcap", "GDP_PPP_pcap", "density_psqkm", "Gini_01"
   )]), ]
 
 
-
-# Optionally, use full dataset instead (commented out)
-# full_model_data <- na.omit(full.dataset[, c(
-#   "ES_pcap", "GDP_PPP_pcap_thousands", "d_bar", "u_bar",
-#   "rising_income", "falling_income", "lag_ES_pcap"
-# )]) %>%
-#   filter(!is.na(lag_ES_pcap))
-# model_data <- full_model_data
-
 # Add model predictions and residuals
-model_data$predicted <- predict(fit_weibull_4, level = 1)
+model_data$predicted <- predict(model_chosen_2, level = 0)
 model_data$residuals <- model_data$ES_pcap - model_data$predicted
 
 ################################################################################
@@ -1510,66 +1315,29 @@ hist(
 # TIDY MODEL OUTPUT AND DISPLAY AS HTML TABLE
 ################################################################################
 
-fit1 <- fit_weibull_4 #fit_weibull_4  # Replace with your fitted model if needed
+fit1 <- model_chosen_2 #fit_weibull_4  # Replace with your fitted model if needed
 # Tidy the model output (example shown with `fit1`; replace with your model if needed)
-tidy_fit <- broom.mixed::tidy(fit1)
+tidy_fit2 <- broom.mixed::tidy(fit1)
 
 # Create a neat HTML table for viewing in RStudio Viewer or browser
-kable(tidy_fit, digits = 3, caption = "Summary of Non-linear Model") %>%
-  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
-  save_kable(here::here("results/tidy_model_summary_logistic2.html"))
-
-
-################################################################################
-# EXPORT MODEL SUMMARY USING STARGAZER
-################################################################################
-
-# Export model summary to an HTML file (replace `fit_gately_nlsLM` with your model)
-# stargazer(
-#   fit_weibull_4,
-#   type = "html",
-#   title = "Model Summary",
-#   out = here::here("results/model_summary_weibull1.html")
-# )
-
-################################################################################
-# OPTIONAL: CLEAN TERM NAMES FOR EXPORT (IF NEEDED)
-################################################################################
-
-# Example of renaming terms in a tidy summary (if applicable)
-# tidy_fit <- tidy_fit %>%
-#   mutate(
-#     term = gsub("random\\(Intercept\\)", "Random Intercept", term),
-#     term = gsub("fixed\\(Intercept\\)", "Fixed Intercept", term)
-#   )
-
-# Export cleaned summary to CSV
-# write.csv(tidy_fit, here::here("results/summary_table_logistic1.csv"), row.names = FALSE)
-
-################################################################################
-# CONFIDENCE INTERVALS FOR MODEL PARAMETERS (IF APPLICABLE)
-################################################################################
-
-# Extract confidence intervals for model parameters (for nlme models)
-# intervals_output <- intervals(fit1)
-# print(intervals_output)
+# kable(tidy_fit, digits = 3, caption = "Summary of Non-linear Model") %>%
+#   kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+#   save_kable(here::here("results/tidy_model_summary_logistic2.html"))
 
 ################################################################################
 # MODEL SELECTION AND PREDICTION
 ################################################################################
 
 # Assign the chosen model to a generic variable for clarity
-fit <- fit_weibull_4#fit_weibull_4
+fit <- model_chosen_2#fit_weibull_4
 
 # Prepare dataset for prediction: remove rows with missing values in key variables
-
 data1_model <- full.dataset[complete.cases(full.dataset[, c(
   "ES_pcap", "GDP_PPP_pcap_thousands", "density_psqkm", "Gini_01"
 )]), ]
 
-
 # Generate predictions using the fitted model
-data1_model$predicted_ES_pcap <- predict(fit, newdata = data1_model, level = 1)
+data1_model$predicted_ES_pcap <- predict(fit, newdata = data1_model, level = 0)
 
 # Calculate residuals
 data1_model$residuals <- data1_model$ES_pcap - data1_model$predicted_ES_pcap
@@ -1660,17 +1428,17 @@ ggplot(data1_model, aes(x = year, y = ES_pcap)) +
 
 # Step 1: Filter future data (optional filter by country or year)
 future_data <- data %>%
-  filter(year >= 2024)
+  filter(year > last.historical.year)
 
 # Step 2: Prepare dataset for forecasting
 # Set lag_ES_pcap to NA for years >= 2024 to simulate unknown future values
 predictions_data <- data %>%
-  mutate(lag_ES_pcap = ifelse(year >= 2024, NA, lag_ES_pcap))
+  mutate(lag_ES_pcap = ifelse(year > last.historical.year, NA, lag_ES_pcap))
 
 # Step 3: Initialize variables
 predictions <- list()  # To store predictions if needed
 data.orig <- data.frame(predictions_data)  # Working copy of the dataset
-model <- fit_weibull_4 #fit_weibull_4  # Fitted nlsLM model
+model <- model_chosen_2 #fit_weibull_4  # Fitted nlsLM model
 
 ################################################################################
 # ITERATIVE FORECAST LOOP: YEAR-BY-YEAR PREDICTION
@@ -1715,7 +1483,7 @@ known_ids <- unique(model$groups$country_id)
 
 # Get base year value of ES_pcap per country_id
 base_year_values <- data.orig %>%
-  filter(year == 2023) %>%
+  filter(year == last.historical.year) %>%
   select(country_id, ES_pcap)
 
 for (i in 2024:2100) {
@@ -1775,12 +1543,12 @@ predictions_data <- data.orig %>%
   arrange(country_id, year)
 
 # Calculate offset value by letting model predict 2023 values (base year) and calculate difference with actual
-base_year_values <- predict(model, newdata = data.orig %>% filter(year == 2023), level = 1) %>%
-  data.frame(country_id = data.orig$country_id[data.orig$year == 2023], ES_pcap = .)
+base_year_values <- predict(model, newdata = data.orig %>% filter(year == last.historical.year), level = 1) %>%
+  data.frame(country_id = data.orig$country_id[data.orig$year == last.historical.year], ES_pcap = .)
 
 # Calculate offset value given difference between base_year value and model prediction
 offset_values <- base_year_values %>%
-  left_join(predictions_data %>% filter(year == 2023) %>% select(country_id, ES_pcap), by = "country_id") %>%
+  left_join(predictions_data %>% filter(year == last.historical.year) %>% select(country_id, ES_pcap), by = "country_id") %>%
   mutate(offset = ES_pcap.y - ES_pcap.x) %>%
   select(country_id, offset)
 
@@ -1788,8 +1556,8 @@ offset_values <- base_year_values %>%
 predictions_data <- predictions_data %>%
   left_join(offset_values, by = "country_id") %>%
   mutate(
-    ES_pcap = if_else(year >= 2024, ES_pcap + offset, ES_pcap),
-    lag_ES_pcap = if_else(year >= 2024, lag(ES_pcap), lag_ES_pcap)
+    ES_pcap = if_else(year > last.historical.year, ES_pcap + offset, ES_pcap),
+    lag_ES_pcap = if_else(year > last.historical.year, lag(ES_pcap), lag_ES_pcap)
   ) %>%
   select(-offset)
 
@@ -1799,20 +1567,8 @@ predictions_data <- predictions_data %>%
 
 # Step 1: Extract future data (from 2024 onward) and assign predicted ES_pcap
 future_data <- predictions_data %>%
-  filter(year >= 2024) %>%
+  filter(year > last.historical.year) %>%
   mutate(predicted_ES_pcap = ES_pcap)
-
-################################################################################
-# EXPORT SELECTED COUNTRY DATA (e.g., Libya) TO CLIPBOARD
-################################################################################
-# Step 2: Extract Libya's forecast data for review or export
-selected.libya <- future_data %>%
-  filter(country_name == "Libya") %>%
-  select(country_name, year, d_bar, u_bar, rising_income, falling_income, 
-         lag_ES_pcap, GDP_PPP_pcap_thousands, ES_pcap)
-
-# Copy to clipboard (Windows only)
-write.table(selected.libya, file = "clipboard", sep = "\t", row.names = FALSE, col.names = TRUE)
 
 ################################################################################
 # COMBINE HISTORICAL AND PREDICTED DATA FOR VISUALIZATION
@@ -1820,7 +1576,7 @@ write.table(selected.libya, file = "clipboard", sep = "\t", row.names = FALSE, c
 
 # Step 3: Select relevant columns from historical and future datasets
 selected1 <- data.orig %>%
-  filter(year < 2024) %>%
+  filter(year <= last.historical.year) %>%
   ungroup() %>%
   select(country_name, GDP_PPP_pcap, ES_pcap, year, Hex)
 
@@ -1831,22 +1587,11 @@ selected2 <- future_data %>%
 # Step 4: Combine and label data
 aggregated.data <- rbind(selected1, selected2) %>%
   arrange(country_name, year) %>%
-  mutate(line_type = if_else(year <= 2023, "Historical", "Predicted"))
+  mutate(line_type = if_else(year <= last.historical.year, "Historical", "Predicted"))
 
 # Step 5: Split into historical and predicted subsets
 historical_data <- aggregated.data %>% filter(line_type == "Historical")
 predicted_data  <- aggregated.data %>% filter(line_type == "Predicted")
-
-################################################################################
-# DEFINE COUNTRY COLORS FOR CONSISTENT PLOTTING
-################################################################################
-
-# Create a named vector of colors for each country
-country_colors <- historical_data %>%
-  select(country_name, Hex) %>%
-  distinct() 
-
-country_colors <- setNames(country_colors$Hex, country_colors$country_name)
 
 ################################################################################
 # CREATE PLOT: GDP vs. ES_pcap (Historical vs. Predicted)
@@ -1889,14 +1634,14 @@ p1 <- ggplot() +
   ) +
   scale_color_manual(values = country_colors) +
   labs(
-    title = "Predicted Energy Service per Capita using Logistic 2 Model",
+    title = "Predicted Energy Service per Capita using Logistic 2 Model: Simple with Gini",
     x = "GDP per capita (USD)",
     y = "Energy Service per Capita (passenger km / capita)",
     color = "Country",
     linetype = "Data Type"
   ) +
   theme_minimal() +
-  create_theme(16) +
+  create_theme1(16) +
   scale_x_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k")) +
   scale_y_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k"))
 
@@ -1911,21 +1656,6 @@ p1 <- ggplot() +
 #     parse = TRUE,
 #     size = 4
 #   )
-
-# # Add the Weibull equation to your existing plot
-# p1 <- p1 +
-#   annotate(
-#     "text",
-#     x = Inf, y = Inf,  # Position in top-right corner (adjust as needed)
-#     label = "italic((alpha[0] + alpha[1]*density[psqkm] + alpha[2]*lag_ES[pcap]) * 
-#                     k / exp(gamma + lambda*Gini) * 
-#                     (GDP[PPP][pcap] / exp(gamma + lambda*Gini))^(k - 1) * 
-#                     exp(-(GDP[PPP][pcap] / exp(gamma + lambda*Gini))^k))",
-#     hjust = 1.1, vjust = 1.5,
-#     parse = TRUE,
-#     size = 4
-#   )
-# 
 
 ################################################################################
 # EXPORT INTERACTIVE AND STATIC VERSIONS OF THE PLOT
@@ -1944,103 +1674,11 @@ ggsave(
   plot = p1,
   width = 16, height = 16, dpi = 150
 )
+
 ################################################################################
 # FIT LOGISTIC 3 MODEL
 ################################################################################
-
-logistic_model_3 <- deriv(
-  ~ (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap)/scal)))^(beta_1 * Gini + beta_0),
-  namevec = c("alpha_0", "alpha_1", "xmid", "scal", "beta_1", "beta_0"),
-  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "alpha_0", "alpha_1", "xmid", "scal", "beta_1", "beta_0")
-)
-
-# Set parameter values
-alpha_0 <- 20000
-alpha_1 <- -0.15
-xmid <- 25000
-scal <- 45500
-beta_1 <- 0.05
-beta_0 <- 0.01
-
-# Create a grid of values
-GDP_PPP_pcap_vals <- seq(10000, 100000, length.out = 100)
-density_vals <- seq(10, 1000, length.out = 100)
-gini_vals <- seq(0, 1, length.out = 100)
-grid <- expand.grid(GDP_PPP_pcap = GDP_PPP_pcap_vals, density_psqkm = density_vals, Gini = gini_vals)
-
-# Compute model values
-grid$logistic_value <- with(grid, logistic_model_3(GDP_PPP_pcap, density_psqkm, Gini, alpha_0, alpha_1, xmid, scal, beta_1, beta_0))
-
-# Plot using ggplot2
-ggplot(grid, aes(x = GDP_PPP_pcap, y = density_psqkm, z = logistic_value)) +
-  geom_contour_filled() +
-  scale_fill_viridis_d() +
-  labs(
-    title = "Logistic Model Visualization",
-    x = "GDP_PPP_pcap",
-    y = "Population Density (per sq km)",
-    fill = "Model Output"
-  ) +
-  theme_minimal()
-
-################################################################################
-# EVALUATE MODEL OVER A GRID OF VALUES
-################################################################################
-
-# Define the logistic model function
-logistic_model3 <- function(GDP_PPP_pcap, density_psqkm, Gini, alpha_0, alpha_1, xmid, scal, beta_1, beta_0) {
-  base <- (alpha_0 + alpha_1 * density_psqkm)
-  logistic_component <- 1 / (1 + exp((xmid - GDP_PPP_pcap) / scal))
-  return(base * logistic_component^(beta_1 * Gini + beta_0))
-}
-
-# Set parameter values
-alpha_0 <- 15000
-alpha_1 <- -0.15
-xmid <- 50000
-scal <- 45000
-beta_1 <- 0.05
-beta_0 <- 0.01
-Gini <- 0.4  # Fixed Gini coefficient for visualization
-
-# Create sequences
-GDP_PPP_pcap_vals <- seq(10000, 100000, length.out = 100)
-density_vals <- seq(10, 1000, length.out = 100)
-
-# Create grid and compute z values
-z_vals <- outer(density_vals, GDP_PPP_pcap_vals, Vectorize(function(d, gdp) {
-  logistic_model3(gdp, d, Gini, alpha_0, alpha_1, xmid, scal, beta_1, beta_0)
-}))
-
-# Create interactive 3D surface plot
-plot_ly(
-  x = ~density_vals,
-  y = ~GDP_PPP_pcap_vals,
-  z = ~z_vals
-) %>%
-  add_surface() %>%
-  layout(
-    title = "Interactive 3D Surface Plot of Logistic Model",
-    scene = list(
-      xaxis = list(title = "Population Density (per sq km)"),
-      yaxis = list(title = "GDP PPP per Capita"),
-      zaxis = list(title = "ES per capita")
-    )
-  )
-
-
-htmlwidgets::saveWidget(plot1, here::here("plots/logistic_model_3_plot.html"))
-
-###############################################################################################
-# logistic_model_2 <- function(GDP_PPP_pcap, density_psqkm, Gini, alpha_0, alpha_1, xmid, scal, beta_1) {
-#   base <- alpha_0 + alpha_1 * density_psqkm
-#   logistic_component <- 1 / (1 + exp((xmid - GDP_PPP_pcap) / scal))
-#   logistic_component <- pmax(logistic_component, 1e-8)  # Avoid zero or negative values
-#   result <- base * logistic_component^(beta_1 * Gini)
-#   if (any(is.nan(result) | is.infinite(result))) return(NA)
-#   return(result)
-# }
-
+# Check for invalid combinations
 # Create parameter grid
 param_grid <- expand.grid(
   alpha_0 = seq(100, 75000, length.out = 10),
@@ -2057,7 +1695,7 @@ test_row <- data1[1, ]
 # Function to test a parameter combination
 test_combination <- function(params) {
   tryCatch({
-    result <- logistic_model_32(
+    result <- logistic_model_3(
       GDP_PPP_pcap = test_row$GDP_PPP_pcap,
       density_psqkm = test_row$density_psqkm,
       Gini = test_row$Gini_01,
@@ -2083,49 +1721,55 @@ head(bad_params)
 ################################################################################
 summary(data1[, c("ES_pcap", "GDP_PPP_pcap", "density_psqkm", "Gini_01")])
 
-# Display rows with NA values in ES_pcap
-data1 %>%
-  filter(is.na(ES_pcap)|is.na(density_psqkm)|is.na(GDP_PPP_pcap)|is.na(Gini_01)) %>%
-  select(country_name, year, ES_pcap, GDP_PPP_pcap, density_psqkm)
+nls2_fit_3 <- nls2(
+  ES_pcap ~ logistic_model_3(GDP_PPP_pcap, density_psqkm, Gini_01, alpha_0, alpha_1, xmid, scal, beta_1, beta_0),
+  data = data1,
+  start = expand.grid(
+    alpha_0 = seq(100, 75000, length.out = 5),
+    alpha_1 = seq(-10, 10, length.out = 5),
+    xmid = seq(10000, 70000, length.out = 5),
+    scal = seq(0, 100000, length.out = 5),
+    beta_1 = seq(-5, 5, length.out = 5),
+    beta_0 = seq(0, 5, length.out = 5)
+  ),
+  algorithm = "brute-force"
+)
 
-# nls2_fit <- nls2(
-#   ES_pcap ~ logistic_model_3(GDP_PPP_pcap, density_psqkm, Gini_01, alpha_0, alpha_1, xmid, scal, beta_1, beta_0),
-#   data = data1,
-#   start = expand.grid(
-#     alpha_0 = seq(100, 75000, length.out = 5),
-#     alpha_1 = seq(-10, 10, length.out = 5),
-#     xmid = seq(10000, 70000, length.out = 5),
-#     scal = seq(0, 100000, length.out = 5),
-#     beta_1 = seq(-5, 5, length.out = 5),
-#     beta_0 = seq(0, 5, length.out = 5)
-#   ),
-#   algorithm = "brute-force"
-# )
-# 
-# summary(nls2_fit)
+summary(nls2_fit_3)
 
-best_start_vals <- as.list(coef(nls2_fit))
+best_start_vals <- as.list(coef(nls2_fit_3))
 
 # Add beta_0 to best_start_vals
-best_start_vals$beta_0 <- 1  # Set a reasonable starting value for beta_0
+#best_start_vals$beta_0 <- 1  # Set a reasonable starting value for beta_0
 
 
 # Fit the model using nlsLM with starting values
-nlsLM_fit <- nlsLM(
+nlsLM_fit_3 <- nlsLM(
   ES_pcap ~ logistic_model_3(GDP_PPP_pcap, density_psqkm, Gini_01, alpha_0, alpha_1, xmid, scal, beta_1, beta_0),
   data = data1,
   start = best_start_vals,
-  lower = c(alpha_0 = -Inf, alpha_1 = -Inf, xmid = 12000, scal = -Inf, beta_1 = -Inf, beta_0 = -Inf),
+  lower = c(alpha_0 = 0, alpha_1 = -Inf, xmid = 2000, scal = 0, beta_1 = -Inf, beta_0 = -Inf),
   control = nls.lm.control(maxiter = 500, ftol = 1e-8)
 )
 
+summary(nlsLM_fit_3)
+plot(residuals(nls2_fit_3))
+plot(residuals(nlsLM_fit_3))
 
-summary(nlsLM_fit)
-plot(residuals(nlsLM_fit))
+model_chosen_3 <- nlsLM_fit_3
 
-fit_weibull_4 <- nlsLM_fit
+fit_stats3 <- data.frame(
+  Model = "Logistic 3: Advanced with Gini",
+  AIC = AIC(model_chosen_3),
+  BIC = BIC(model_chosen_3)#,
+  #R_squared = summary(fit_weibull_4)$r.squared
+)
 
-bicmodel3 <- BIC(fit_weibull_4)
+
+# Create a kable table for model fit statistics
+# kable(fit_stats2, digits = 3, caption = "Model Fit Statistics for Logistic 2 Model") %>%
+#   kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+#   save_kable(here::here("results/model_fit_statistics_logistic_2.html"))
 
 # Save model fit statistics to kable html
 
@@ -2135,7 +1779,7 @@ bicmodel3 <- BIC(fit_weibull_4)
 ################################################################################
 
 # Extract estimated coefficients from the fitted model
-coefs <- coef(fit_weibull_4)
+coefs <- coef(model_chosen_3)
 
 # Compute the maturity term for each observation
 maturity_term <- with(data1, coefs["alpha_0"] + coefs["alpha_1"] * density_psqkm)
@@ -2154,37 +1798,20 @@ cat("Number of negative values: ", num_negative, "\n")
 ################################################################################
 
 # Extract parameters from the fitted model and copy to clipboard
-parameters <- coef(fit_weibull_4)
-write.table(parameters, file = "clipboard", sep = "\t", row.names = TRUE, col.names = TRUE)
+# parameters <- coef(fit_weibull_4)
+# write.table(parameters, file = "clipboard", sep = "\t", row.names = TRUE, col.names = TRUE)
 
 ################################################################################
 # MODEL DIAGNOSTICS: PREPARE DATA
 ################################################################################
 
-# Create a clean dataset used in the model (omit rows with missing values)
-# model_data <- na.omit(data1[, c(
-#   "ES_pcap", "GDP_PPP_pcap_thousands", "d_bar", "u_bar",
-#   "rising_income", "falling_income", "lag_ES_pcap"
-# )])
-
-
 model_data <- 
   data1[complete.cases(data1[, c(
-    "ES_pcap", "GDP_PPP_pcap_thousands", "density_psqkm", "Gini_01"
+    "ES_pcap", "GDP_PPP_pcap", "density_psqkm", "Gini_01"
   )]), ]
 
-
-
-# Optionally, use full dataset instead (commented out)
-# full_model_data <- na.omit(full.dataset[, c(
-#   "ES_pcap", "GDP_PPP_pcap_thousands", "d_bar", "u_bar",
-#   "rising_income", "falling_income", "lag_ES_pcap"
-# )]) %>%
-#   filter(!is.na(lag_ES_pcap))
-# model_data <- full_model_data
-
 # Add model predictions and residuals
-model_data$predicted <- predict(fit_weibull_4, level = 1)
+model_data$predicted <- predict(model_chosen_3, level = 0)
 model_data$residuals <- model_data$ES_pcap - model_data$predicted
 
 ################################################################################
@@ -2226,65 +1853,31 @@ hist(
 # TIDY MODEL OUTPUT AND DISPLAY AS HTML TABLE
 ################################################################################
 
-fit1 <- fit_weibull_4 #fit_weibull_4  # Replace with your fitted model if needed
+fit1 <- model_chosen_3 #fit_weibull_4  # Replace with your fitted model if needed
 # Tidy the model output (example shown with `fit1`; replace with your model if needed)
-tidy_fit <- broom.mixed::tidy(fit1)
+tidy_fit3 <- broom.mixed::tidy(fit1)
 
 # Create a neat HTML table for viewing in RStudio Viewer or browser
-kable(tidy_fit, digits = 3, caption = "Summary of Non-linear Model") %>%
-  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
-  save_kable(here::here("results/tidy_model_summary_logistic3.html"))
-
-################################################################################
-# EXPORT MODEL SUMMARY USING STARGAZER
-################################################################################
-
-# Export model summary to an HTML file (replace `fit_gately_nlsLM` with your model)
-# stargazer(
-#   fit_weibull_4,
-#   type = "html",
-#   title = "Model Summary",
-#   out = here::here("results/model_summary_weibull1.html")
-# )
-
-################################################################################
-# OPTIONAL: CLEAN TERM NAMES FOR EXPORT (IF NEEDED)
-################################################################################
-
-# Example of renaming terms in a tidy summary (if applicable)
-# tidy_fit <- tidy_fit %>%
-#   mutate(
-#     term = gsub("random\\(Intercept\\)", "Random Intercept", term),
-#     term = gsub("fixed\\(Intercept\\)", "Fixed Intercept", term)
-#   )
-
-# Export cleaned summary to CSV
-# write.csv(tidy_fit, here::here("results/summary_table_logistic1.csv"), row.names = FALSE)
-
-################################################################################
-# CONFIDENCE INTERVALS FOR MODEL PARAMETERS (IF APPLICABLE)
-################################################################################
-
-# Extract confidence intervals for model parameters (for nlme models)
-# intervals_output <- intervals(fit1)
-# print(intervals_output)
+# kable(tidy_fit, digits = 3, caption = "Summary of Non-linear Model") %>%
+#   kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+#   save_kable(here::here("results/tidy_model_summary_logistic3.html"))
 
 ################################################################################
 # MODEL SELECTION AND PREDICTION
 ################################################################################
 
 # Assign the chosen model to a generic variable for clarity
-fit <- fit_weibull_4#fit_weibull_4
+fit <- model_chosen_3#fit_weibull_4
 
 # Prepare dataset for prediction: remove rows with missing values in key variables
 
 data1_model <- full.dataset[complete.cases(full.dataset[, c(
-  "ES_pcap", "GDP_PPP_pcap_thousands", "density_psqkm", "Gini_01"
+  "ES_pcap", "GDP_PPP_pcap", "density_psqkm", "Gini_01"
 )]), ]
 
 
 # Generate predictions using the fitted model
-data1_model$predicted_ES_pcap <- predict(fit, newdata = data1_model, level = 1)
+data1_model$predicted_ES_pcap <- predict(fit, newdata = data1_model, level = 0)
 
 # Calculate residuals
 data1_model$residuals <- data1_model$ES_pcap - data1_model$predicted_ES_pcap
@@ -2375,63 +1968,24 @@ ggplot(data1_model, aes(x = year, y = ES_pcap)) +
 
 # Step 1: Filter future data (optional filter by country or year)
 future_data <- data %>%
-  filter(year >= 2024)
+  filter(year > last.historical.year)
 
 # Step 2: Prepare dataset for forecasting
 # Set lag_ES_pcap to NA for years >= 2024 to simulate unknown future values
 predictions_data <- data %>%
-  mutate(lag_ES_pcap = ifelse(year >= 2024, NA, lag_ES_pcap))
+  mutate(lag_ES_pcap = ifelse(year > last.historical.year, NA, lag_ES_pcap))
 
 # Step 3: Initialize variables
 predictions <- list()  # To store predictions if needed
 data.orig <- data.frame(predictions_data)  # Working copy of the dataset
-model <- fit_weibull_4 #fit_weibull_4  # Fitted nlsLM model
+model <- model_chosen_3 #fit_weibull_4  # Fitted nlsLM model
 
 ################################################################################
 # ITERATIVE FORECAST LOOP: YEAR-BY-YEAR PREDICTION
 ################################################################################
 
-# for (i in 2024:2100) {
-#   
-#   # Step 3.1: Update lag_ES_pcap for the current year
-#   data.orig <- data.orig %>%
-#     group_by(country_id) %>%
-#     arrange(year) %>%
-#     mutate(lag_ES_pcap = if_else(year == i, lag(ES_pcap), lag_ES_pcap)) %>%
-#     ungroup()
-#   
-#   # Step 3.2: Filter data for the current forecast year
-#   data.used <- filter(data.orig, year == i)
-#   
-#   # Step 3.3: Predict ES_pcap using the model
-#   predictions <- predict(model, newdata = data.used, level = 1)
-#   
-#   # Step 3.4: Create a dataframe of predictions
-#   prediction_df <- data.frame(
-#     country_id = data.used$country_id,
-#     year = data.used$year,
-#     predicted_ES_pcap = predictions
-#   )
-#   
-#   # Step 3.5: Update ES_pcap in the original dataset with predicted values
-#   data.orig <- data.orig %>%
-#     left_join(prediction_df, by = c("country_id", "year")) %>%
-#     group_by(country_id) %>%
-#     arrange(country_id, year) %>%
-#     mutate(
-#       ES_pcap = if_else(!is.na(predicted_ES_pcap), predicted_ES_pcap, ES_pcap),
-#       lag_ES_pcap = if_else(year == i, lag(ES_pcap), lag_ES_pcap)
-#     ) %>%
-#     select(-predicted_ES_pcap)  # Clean up temporary column
-# }
-
 # Extract known country_ids from the fitted model
 known_ids <- unique(model$groups$country_id)
-
-# Get base year value of ES_pcap per country_id
-base_year_values <- data.orig %>%
-  filter(year == 2023) %>%
-  select(country_id, ES_pcap)
 
 for (i in 2024:2100) {
   
@@ -2480,7 +2034,6 @@ for (i in 2024:2100) {
     select(-predicted_ES_pcap)
 }
 
-
 ################################################################################
 # FINALIZE FORECASTED DATASET
 ################################################################################
@@ -2490,12 +2043,12 @@ predictions_data <- data.orig %>%
   arrange(country_id, year)
 
 # Calculate offset value by letting model predict 2023 values (base year) and calculate difference with actual
-base_year_values <- predict(model, newdata = data.orig %>% filter(year == 2023), level = 1) %>%
-  data.frame(country_id = data.orig$country_id[data.orig$year == 2023], ES_pcap = .)
+base_year_values <- predict(model, newdata = data.orig %>% filter(year == last.historical.year), level = 0) %>%
+  data.frame(country_id = data.orig$country_id[data.orig$year == last.historical.year], ES_pcap = .)
 
 # Calculate offset value given difference between base_year value and model prediction
 offset_values <- base_year_values %>%
-  left_join(predictions_data %>% filter(year == 2023) %>% select(country_id, ES_pcap), by = "country_id") %>%
+  left_join(predictions_data %>% filter(year == last.historical.year) %>% select(country_id, ES_pcap), by = "country_id") %>%
   mutate(offset = ES_pcap.y - ES_pcap.x) %>%
   select(country_id, offset)
 
@@ -2503,8 +2056,8 @@ offset_values <- base_year_values %>%
 predictions_data <- predictions_data %>%
   left_join(offset_values, by = "country_id") %>%
   mutate(
-    ES_pcap = if_else(year >= 2024, ES_pcap + offset, ES_pcap),
-    lag_ES_pcap = if_else(year >= 2024, lag(ES_pcap), lag_ES_pcap)
+    ES_pcap = if_else(year > last.historical.year, ES_pcap + offset, ES_pcap),
+    lag_ES_pcap = if_else(year > last.historical.year, lag(ES_pcap), lag_ES_pcap)
   ) %>%
   select(-offset)
 
@@ -2514,20 +2067,8 @@ predictions_data <- predictions_data %>%
 
 # Step 1: Extract future data (from 2024 onward) and assign predicted ES_pcap
 future_data <- predictions_data %>%
-  filter(year >= 2024) %>%
+  filter(year > last.historical.year) %>%
   mutate(predicted_ES_pcap = ES_pcap)
-
-################################################################################
-# EXPORT SELECTED COUNTRY DATA (e.g., Libya) TO CLIPBOARD
-################################################################################
-# Step 2: Extract Libya's forecast data for review or export
-selected.libya <- future_data %>%
-  filter(country_name == "Libya") %>%
-  select(country_name, year, d_bar, u_bar, rising_income, falling_income, 
-         lag_ES_pcap, GDP_PPP_pcap_thousands, ES_pcap)
-
-# Copy to clipboard (Windows only)
-write.table(selected.libya, file = "clipboard", sep = "\t", row.names = FALSE, col.names = TRUE)
 
 ################################################################################
 # COMBINE HISTORICAL AND PREDICTED DATA FOR VISUALIZATION
@@ -2535,7 +2076,7 @@ write.table(selected.libya, file = "clipboard", sep = "\t", row.names = FALSE, c
 
 # Step 3: Select relevant columns from historical and future datasets
 selected1 <- data.orig %>%
-  filter(year < 2024) %>%
+  filter(year <= last.historical.year) %>%
   ungroup() %>%
   select(country_name, GDP_PPP_pcap, ES_pcap, year, Hex)
 
@@ -2546,22 +2087,11 @@ selected2 <- future_data %>%
 # Step 4: Combine and label data
 aggregated.data <- rbind(selected1, selected2) %>%
   arrange(country_name, year) %>%
-  mutate(line_type = if_else(year <= 2023, "Historical", "Predicted"))
+  mutate(line_type = if_else(year <= last.historical.year, "Historical", "Predicted"))
 
 # Step 5: Split into historical and predicted subsets
 historical_data <- aggregated.data %>% filter(line_type == "Historical")
 predicted_data  <- aggregated.data %>% filter(line_type == "Predicted")
-
-################################################################################
-# DEFINE COUNTRY COLORS FOR CONSISTENT PLOTTING
-################################################################################
-
-# Create a named vector of colors for each country
-country_colors <- historical_data %>%
-  select(country_name, Hex) %>%
-  distinct() 
-
-country_colors <- setNames(country_colors$Hex, country_colors$country_name)
 
 ################################################################################
 # CREATE PLOT: GDP vs. ES_pcap (Historical vs. Predicted)
@@ -2604,43 +2134,16 @@ p1 <- ggplot() +
   ) +
   scale_color_manual(values = country_colors) +
   labs(
-    title = "Predicted Energy Service per Capita using Logistic 3 Model",
+    title = "Predicted Energy Service per Capita using Logistic 3 Model: Advanced with Gini",
     x = "GDP per capita (USD)",
     y = "Energy Service per Capita (passenger km / capita)",
     color = "Country",
     linetype = "Data Type"
   ) +
   theme_minimal() +
-  create_theme(16) +
+  create_theme1(16) +
   scale_x_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k")) +
   scale_y_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k"))
-
-# Add the Logistic equation to your existing plot
-# p1 <- p1 +
-#   annotate(
-#     "text",
-#     x = Inf, y = Inf,  # Position in top-right corner (adjust as needed)
-#     label = "italic((alpha[0] + alpha[1]*density[psqkm]) * 
-#                     (1/(1 + exp(- (GDP[PPP][pcap] - xmid)/ scale))))",
-#     hjust = 1.1, vjust = 1.5,
-#     parse = TRUE,
-#     size = 4
-#   )
-
-# # Add the Weibull equation to your existing plot
-# p1 <- p1 +
-#   annotate(
-#     "text",
-#     x = Inf, y = Inf,  # Position in top-right corner (adjust as needed)
-#     label = "italic((alpha[0] + alpha[1]*density[psqkm] + alpha[2]*lag_ES[pcap]) * 
-#                     k / exp(gamma + lambda*Gini) * 
-#                     (GDP[PPP][pcap] / exp(gamma + lambda*Gini))^(k - 1) * 
-#                     exp(-(GDP[PPP][pcap] / exp(gamma + lambda*Gini))^k))",
-#     hjust = 1.1, vjust = 1.5,
-#     parse = TRUE,
-#     size = 4
-#   )
-# 
 
 ################################################################################
 # EXPORT INTERACTIVE AND STATIC VERSIONS OF THE PLOT
@@ -2660,22 +2163,691 @@ ggsave(
   width = 16, height = 16, dpi = 150
 )
 
-# Save model fit statistics to kable html
+################################################################################
+# FIT LOGISTIC 4 MODEL
+################################################################################
+# Check for invalid combinations
+# Create parameter grid
+param_grid <- expand.grid(
+  alpha_0 = seq(100, 75000, length.out = 10),
+  alpha_1 = seq(-10, 10, length.out = 10),
+  xmid = seq(10000, 70000, length.out = 10),
+  scal = seq(1000, 100000, length.out = 10),
+  beta_1 = seq(-10000, 10000, length.out = 10)
+)
 
-fit_stats3 <- data.frame(
-  Model = "Logistic 3",
-  AIC = AIC(fit_weibull_4),
-  BIC = BIC(fit_weibull_4)#,
+# Sample one row of your data to test the model
+test_row <- data1[1, ]
+
+# Function to test a parameter combination
+test_combination <- function(params) {
+  tryCatch({
+    result <- logistic_model_4(
+      GDP_PPP_pcap = test_row$GDP_PPP_pcap,
+      density_psqkm = test_row$density_psqkm,
+      Gini = test_row$Gini_01,
+      alpha_0 = params["alpha_0"],
+      alpha_1 = params["alpha_1"],
+      xmid = params["xmid"],
+      scal = params["scal"],
+      beta_1 = params["beta_1"]
+    )
+    if (is.na(result) || is.nan(result) || is.infinite(result)) return(FALSE)
+    return(TRUE)
+  }, error = function(e) FALSE)
+}
+
+# Apply the test
+valid_combinations <- apply(param_grid, 1, test_combination)
+
+# View problematic combinations
+bad_params <- param_grid[!valid_combinations, ]
+head(bad_params)
+
+################################################################################
+
+nls2_fit_4 <- nls2(
+  ES_pcap ~ logistic_model_4(GDP_PPP_pcap, density_psqkm, Gini_01, alpha_0, alpha_1, xmid, scal, beta_1),
+  data = data1,
+  start = expand.grid(
+    alpha_0 = seq(100, 75000, length.out = 5),
+    alpha_1 = seq(-10, 10, length.out = 5),
+    xmid = seq(5000, 70000, length.out = 5),
+    scal = seq(0, 100000, length.out = 5),
+    beta_1 = seq(-10000, 10000, length.out = 5)
+  ),
+  algorithm = "brute-force"
+)
+
+summary(nls2_fit_4)
+
+best_start_vals <- as.list(coef(nls2_fit_4))
+
+# Add beta_0 to best_start_vals
+#best_start_vals$beta_0 <- 1  # Set a reasonable starting value for beta_0
+
+
+# Fit the model using nlsLM with starting values
+nlsLM_fit_4 <- nlsLM(
+  ES_pcap ~ logistic_model_4(GDP_PPP_pcap, density_psqkm, Gini_01, alpha_0, alpha_1, xmid, scal, beta_1),
+  data = data1,
+  start = best_start_vals,
+  lower = c(alpha_0 = 0, alpha_1 = -Inf, xmid = 2000, scal = 0, beta_1 = -Inf),
+  control = nls.lm.control(maxiter = 500, ftol = 1e-8)
+)
+
+summary(nlsLM_fit_4)
+plot(residuals(nls2_fit_4))
+plot(residuals(nlsLM_fit_4))
+
+model_chosen_4 <- nlsLM_fit_4
+
+fit_stats4 <- data.frame(
+  Model = "Logistic 4: Advanced with Gini Interaction",
+  AIC = AIC(model_chosen_4),
+  BIC = BIC(model_chosen_4)#,
   #R_squared = summary(fit_weibull_4)$r.squared
 )
+
+
 # Create a kable table for model fit statistics
-kable(fit_stats3, digits = 3, caption = "Model Fit Statistics for Logistic 3 Model") %>%
-  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
-  save_kable(here::here("results/model_fit_statistics_logistic_3.html"))
+# kable(fit_stats2, digits = 3, caption = "Model Fit Statistics for Logistic 2 Model") %>%
+#   kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+#   save_kable(here::here("results/model_fit_statistics_logistic_2.html"))
 
-fit_stats_all <- rbind(fit_stats1, fit_stats2, fit_stats3)
+# Save model fit statistics to kable html
 
-kable(fit_stats_all, digits = 3, caption = "Model Fit Statistics for Logistic Models") %>%
+
+################################################################################
+# CHECKING FOR NEGATIVE MATURITY TERMS
+################################################################################
+
+# Extract estimated coefficients from the fitted model
+coefs <- coef(model_chosen_4)
+
+# Compute the maturity term for each observation
+maturity_term <- with(data1, coefs["alpha_0"] + coefs["alpha_1"] * density_psqkm)
+
+# Check if any maturity terms are negative
+any_negative <- any(maturity_term < 0)
+num_negative <- sum(maturity_term < 0)
+which_negative <- which(maturity_term < 0)
+
+# Output results
+cat("Any negative maturity terms? ", any_negative, "\n")
+cat("Number of negative values: ", num_negative, "\n")
+
+################################################################################
+# COPY MODEL PARAMETERS TO CLIPBOARD (WINDOWS ONLY)
+################################################################################
+
+# Extract parameters from the fitted model and copy to clipboard
+# parameters <- coef(fit_weibull_4)
+# write.table(parameters, file = "clipboard", sep = "\t", row.names = TRUE, col.names = TRUE)
+
+################################################################################
+# MODEL DIAGNOSTICS: PREPARE DATA
+################################################################################
+
+model_data <- 
+  data1[complete.cases(data1[, c(
+    "ES_pcap", "GDP_PPP_pcap", "density_psqkm", "Gini_01"
+  )]), ]
+
+# Add model predictions and residuals
+model_data$predicted <- predict(model_chosen_4, level = 0)
+model_data$residuals <- model_data$ES_pcap - model_data$predicted
+
+################################################################################
+# MODEL DIAGNOSTICS: PLOTS
+################################################################################
+
+# 1. Actual vs. Predicted Plot
+plot(
+  model_data$ES_pcap, model_data$predicted,
+  xlab = "Actual ES_pcap", ylab = "Predicted ES_pcap",
+  main = "Actual vs. Predicted ES_pcap",
+  pch = 19, col = rgb(0, 0, 1, 0.5)
+)
+abline(a = 0, b = 1, col = "red", lty = 2)
+
+# 2. Residuals vs. Fitted Values
+plot(
+  model_data$predicted, model_data$residuals,
+  xlab = "Predicted ES_pcap", ylab = "Residuals",
+  main = "Residuals vs. Fitted Values",
+  pch = 19, col = rgb(0, 0, 1, 0.5)
+)
+abline(h = 0, col = "red", lty = 2)
+
+# 3. Histogram of Residuals
+hist(
+  model_data$residuals,
+  breaks = 30,
+  main = "Histogram of Residuals",
+  xlab = "Residuals",
+  col = "lightblue", border = "white"
+)
+
+################################################################################
+# MODEL SUMMARY EXPORT: FORMATTED TABLES AND FILE OUTPUT
+################################################################################
+
+################################################################################
+# TIDY MODEL OUTPUT AND DISPLAY AS HTML TABLE
+################################################################################
+
+fit1 <- model_chosen_4 #fit_weibull_4  # Replace with your fitted model if needed
+# Tidy the model output (example shown with `fit1`; replace with your model if needed)
+tidy_fit4 <- broom.mixed::tidy(fit1)
+
+# Create a neat HTML table for viewing in RStudio Viewer or browser
+# kable(tidy_fit, digits = 3, caption = "Summary of Non-linear Model") %>%
+#   kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+#   save_kable(here::here("results/tidy_model_summary_logistic3.html"))
+
+################################################################################
+# MODEL SELECTION AND PREDICTION
+################################################################################
+
+# Assign the chosen model to a generic variable for clarity
+fit <- model_chosen_4#fit_weibull_4
+
+# Prepare dataset for prediction: remove rows with missing values in key variables
+
+data1_model <- full.dataset[complete.cases(full.dataset[, c(
+  "ES_pcap", "GDP_PPP_pcap", "density_psqkm", "Gini_01"
+)]), ]
+
+
+# Generate predictions using the fitted model
+data1_model$predicted_ES_pcap <- predict(fit, newdata = data1_model, level = 0)
+
+# Calculate residuals
+data1_model$residuals <- data1_model$ES_pcap - data1_model$predicted_ES_pcap
+
+# Optional: Inspect a specific country
+#View(data1_model %>% filter(country_name == "Libya"))
+
+################################################################################
+# DIAGNOSTIC PLOTS
+################################################################################
+
+# 1. Actual vs. Predicted ES_pcap
+ggplot(data1_model, aes(x = ES_pcap, y = predicted_ES_pcap, color = country_name)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  labs(
+    title = "Actual vs Predicted ES_pcap",
+    x = "Actual ES_pcap",
+    y = "Predicted ES_pcap"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# 2. Residuals by Year and Country
+ggplot(data1_model, aes(x = year, y = residuals, color = country_name)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~ country_name, scales = "free") +
+  labs(
+    title = "Residuals by Year and Country",
+    x = "Year",
+    y = "Residuals"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+################################################################################
+# MODEL COEFFICIENTS: FIXED EFFECTS SUMMARY
+################################################################################
+
+# Extract fixed effects using broom
+fixed_df <- broom::tidy(fit) %>%
+  mutate(effect_type = "Fixed")
+
+# Optional: Combine with random effects if available
+# random_effects <- ranef(fit)
+# random_df <- random_effects %>%
+#   tibble::rownames_to_column("country_name") %>%
+#   pivot_longer(-country_name, names_to = "term", values_to = "estimate") %>%
+#   mutate(effect_type = "Random")
+# combined_df <- bind_rows(fixed_df, random_df)
+
+# For now, use only fixed effects
+combined_df <- fixed_df
+
+# Optional: Display as a GT table
+# gt(combined_df) %>%
+#   tab_header(title = "Fixed and Random Effects from Nonlinear Mixed-Effects Model") %>%
+#   cols_label(
+#     country_name = "Country",
+#     term = "Parameter",
+#     estimate = "Estimate",
+#     effect_type = "Effect Type"
+#   ) %>%
+#   fmt_number(columns = "estimate", decimals = 3)
+
+################################################################################
+# PREDICTED VS ACTUAL OVER TIME BY COUNTRY
+################################################################################
+
+ggplot(data1_model, aes(x = year, y = ES_pcap)) +
+  geom_point() +
+  geom_line() +
+  geom_point(aes(y = predicted_ES_pcap), color = "red") +
+  geom_line(aes(y = predicted_ES_pcap), color = "red") +
+  facet_wrap(~ country_name, scales = "free") +
+  labs(
+    title = "Predicted vs Actual Energy Service per Capita",
+    x = "Year",
+    y = "Energy Service per Capita"
+  ) +
+  theme_minimal()
+
+################################################################################
+# FORECASTING FUTURE ENERGY SERVICE PER CAPITA (ES_pcap)
+# Using iterative prediction from 2024 to 2100 with lagged values
+################################################################################
+
+# Step 1: Filter future data (optional filter by country or year)
+future_data <- data %>%
+  filter(year > last.historical.year)
+
+# Step 2: Prepare dataset for forecasting
+# Set lag_ES_pcap to NA for years >= 2024 to simulate unknown future values
+predictions_data <- data %>%
+  mutate(lag_ES_pcap = ifelse(year > last.historical.year, NA, lag_ES_pcap))
+
+# Step 3: Initialize variables
+predictions <- list()  # To store predictions if needed
+data.orig <- data.frame(predictions_data)  # Working copy of the dataset
+model <- model_chosen_4 #fit_weibull_4  # Fitted nlsLM model
+
+################################################################################
+# ITERATIVE FORECAST LOOP: YEAR-BY-YEAR PREDICTION
+################################################################################
+
+# Extract known country_ids from the fitted model
+known_ids <- unique(model$groups$country_id)
+
+for (i in 2024:2100) {
+  
+  # Step 1: Update lag_ES_pcap for the current year
+  data.orig <- data.orig %>%
+    group_by(country_id) %>%
+    arrange(year) %>%
+    mutate(lag_ES_pcap = if_else(year == i, lag(ES_pcap), lag_ES_pcap)) %>%
+    ungroup()
+  
+  # Step 2: Filter data for the current forecast year
+  data.used <- filter(data.orig, year == i)
+  
+  # Step 3: Split into known and new countries
+  data.known <- data.used %>% filter(country_id %in% known_ids)
+  data.new   <- data.used %>% filter(!country_id %in% known_ids)
+  
+  # Step 4: Predict using appropriate level
+  pred.known <- if (nrow(data.known) > 0) {
+    predict(model, newdata = data.known, level = 1)
+  } else {
+    numeric(0)
+  }
+  
+  pred.new <- if (nrow(data.new) > 0) {
+    predict(model, newdata = data.new, level = 0)
+  } else {
+    numeric(0)
+  }
+  
+  # Step 5: Combine predictions
+  prediction_df <- bind_rows(
+    data.frame(country_id = data.known$country_id, year = data.known$year, predicted_ES_pcap = pred.known),
+    data.frame(country_id = data.new$country_id, year = data.new$year, predicted_ES_pcap = pred.new)
+  )
+  
+  # Step 6: Update ES_pcap in the original dataset
+  data.orig <- data.orig %>%
+    left_join(prediction_df, by = c("country_id", "year")) %>%
+    group_by(country_id) %>%
+    arrange(country_id, year) %>%
+    mutate(
+      ES_pcap = if_else(!is.na(predicted_ES_pcap), predicted_ES_pcap, ES_pcap),
+      lag_ES_pcap = if_else(year == i, lag(ES_pcap), lag_ES_pcap)
+    ) %>%
+    select(-predicted_ES_pcap)
+}
+
+################################################################################
+# FINALIZE FORECASTED DATASET
+################################################################################
+
+# Arrange the final dataset by country and year
+predictions_data <- data.orig %>%
+  arrange(country_id, year)
+
+# Calculate offset value by letting model predict 2023 values (base year) and calculate difference with actual
+base_year_values <- predict(model, newdata = data.orig %>% filter(year == last.historical.year), level = 0) %>%
+  data.frame(country_id = data.orig$country_id[data.orig$year == last.historical.year], ES_pcap = .)
+
+# Calculate offset value given difference between base_year value and model prediction
+offset_values <- base_year_values %>%
+  left_join(predictions_data %>% filter(year == last.historical.year) %>% select(country_id, ES_pcap), by = "country_id") %>%
+  mutate(offset = ES_pcap.y - ES_pcap.x) %>%
+  select(country_id, offset)
+
+# Add offset value to predictions_data for year >= 2024
+predictions_data <- predictions_data %>%
+  left_join(offset_values, by = "country_id") %>%
+  mutate(
+    ES_pcap = if_else(year > last.historical.year, ES_pcap + offset, ES_pcap),
+    lag_ES_pcap = if_else(year > last.historical.year, lag(ES_pcap), lag_ES_pcap)
+  ) %>%
+  select(-offset)
+
+################################################################################
+# PREPARE FUTURE DATA FOR VISUALIZATION
+################################################################################
+
+# Step 1: Extract future data (from 2024 onward) and assign predicted ES_pcap
+future_data <- predictions_data %>%
+  filter(year > last.historical.year) %>%
+  mutate(predicted_ES_pcap = ES_pcap)
+
+################################################################################
+# COMBINE HISTORICAL AND PREDICTED DATA FOR VISUALIZATION
+################################################################################
+
+# Step 3: Select relevant columns from historical and future datasets
+selected1 <- data.orig %>%
+  filter(year <= last.historical.year) %>%
+  ungroup() %>%
+  select(country_name, GDP_PPP_pcap, ES_pcap, year, Hex)
+
+selected2 <- future_data %>%
+  ungroup() %>%
+  select(country_name, GDP_PPP_pcap, ES_pcap, year, Hex)
+
+# Step 4: Combine and label data
+aggregated.data <- rbind(selected1, selected2) %>%
+  arrange(country_name, year) %>%
+  mutate(line_type = if_else(year <= last.historical.year, "Historical", "Predicted"))
+
+# Step 5: Split into historical and predicted subsets
+historical_data <- aggregated.data %>% filter(line_type == "Historical")
+predicted_data  <- aggregated.data %>% filter(line_type == "Predicted")
+
+################################################################################
+# CREATE PLOT: GDP vs. ES_pcap (Historical vs. Predicted)
+################################################################################
+
+p1 <- ggplot() +
+  # Historical lines
+  geom_path(
+    data = historical_data,
+    aes(
+      x = GDP_PPP_pcap,
+      y = ES_pcap,
+      color = country_name,
+      group = country_name,
+      text = paste(
+        "Country:", country_name,
+        "<br>Year:", year,
+        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+        "<br>ES per capita:", scales::comma(ES_pcap)
+      )
+    ),
+    linetype = "solid"
+  ) +
+  # Predicted lines
+  geom_path(
+    data = predicted_data,
+    aes(
+      x = GDP_PPP_pcap,
+      y = ES_pcap,
+      color = country_name,
+      group = country_name,
+      text = paste(
+        "Country:", country_name,
+        "<br>Year:", year,
+        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+        "<br>ES per capita:", scales::comma(ES_pcap)
+      )
+    ),
+    linetype = "dashed"
+  ) +
+  scale_color_manual(values = country_colors) +
+  labs(
+    title = "Predicted Energy Service per Capita using Logistic 4 Model: Advanced with Gini Interaction",
+    x = "GDP per capita (USD)",
+    y = "Energy Service per Capita (passenger km / capita)",
+    color = "Country",
+    linetype = "Data Type"
+  ) +
+  theme_minimal() +
+  create_theme1(16) +
+  scale_x_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k")) +
+  scale_y_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k"))
+
+################################################################################
+# EXPORT INTERACTIVE AND STATIC VERSIONS OF THE PLOT
+################################################################################
+
+# Save interactive HTML version
+ggplotly(p1 + theme(legend.position = "right"), tooltip = "text") %>%
+  htmlwidgets::saveWidget(
+    here::here("plots/predicted_ES_pcap_logistic_4_fe.html"),
+    selfcontained = TRUE
+  )
+
+# Save static PNG version
+ggsave(
+  filename = here::here("plots/predicted_ES_pcap_logistic_4_fe.png"),
+  plot = p1,
+  width = 16, height = 16, dpi = 150
+)
+
+#################################################################################
+# MODEL FIT STATISTICS FOR LOGISTIC MODELS
+#################################################################################
+fit_stats_logistic <- rbind(fit_stats1, fit_stats2, fit_stats3, fit_stats4)
+
+kable(fit_stats_logistic, digits = 3, caption = "Model Fit Statistics for Logistic Models") %>%
   kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
   save_kable(here::here("results/model_fit_statistics_logistic_all.html"))
 
+# Export tidy_fit for all models to html
+htmlreg(
+  list(model_chosen_1, model_chosen_2, model_chosen_3, model_chosen_4),
+  file = here::here("results/tidy_model_summary_logistic_all.html"),
+  custom.model.names = c("Model 1", "Model 2", "Model 3", "Model 4"),
+  
+  #custom.gof.names = c("Residual Std. Error", "AIC", "BIC"), # Only include what you want
+  override.gof = list(
+    summary(model_chosen_1)$sigma, AIC(model_chosen_1),
+    summary(model_chosen_2)$sigma, AIC(model_chosen_2)
+  ),
+  include.deviance = FALSE,
+ # override.gof.names = c("Residual Std. Error", "AIC", "BIC"),
+  
+  caption = "Logistic Model Summaries",
+ caption.above = TRUE
+)
+# 
+# # models to HTML
+# tidy_fit_logistic <- list(
+#   tidy_fit1 = broom.mixed::tidy(model_chosen_1),
+#   tidy_fit2 = broom.mixed::tidy(model_chosen_2),
+#   tidy_fit3 = broom.mixed::tidy(model_chosen_3),
+#   tidy_fit4 = broom.mixed::tidy(model_chosen_4)
+# )
+# 
+# library(broom)
+# library(knitr)
+# library(kableExtra)
+# 
+# # Tidy the models
+# tidy_models <- list(
+#   model1 = tidy(model_chosen_1),
+#   model2 = tidy(model_chosen_2),
+#   model3 = tidy(model_chosen_3),
+#   model4 = tidy(model_chosen_4)
+# )
+# 
+# # Combine into one table
+# combined <- dplyr::bind_rows(tidy_models, .id = "Model")
+# 
+# # Save as HTML
+# kable(combined, format = "html", caption = "Logistic Model Summaries") %>%
+#   kable_styling(full_width = FALSE) %>%
+#   save_kable(file = here::here("results/tidy_model_summary_logistic_all-2.html"))
+
+# Save tidy_fit_logistic to HTML files
+# kable(tidy_fit_logistic$tidy_fit1, digits = 3, caption = "Summary of Non-linear Model") %>%
+#   kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+#   save_kable(here::here("results/tidy_model_summary_logistic1.html"))
+
+# Save to HTML file
+# kable(tidy_fit, digits = 3, caption = "Summary of Non-linear Model") %>%
+#   kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+#   save_kable(here::here("results/tidy_model_summary_logistic1.html"))
+
+################################################################################
+# FIT LOGISTIC MODEL USING nlsLM (INCLUDES LAGGED ES_pcap)
+################################################################################
+# multiple_logistic_model4 <- deriv(
+#   ~ (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap) / scal))) ^ (gamma_0 + gamma_1 * Gini),
+#   namevec = c("alpha_0", "alpha_1", "xmid", "scal", "gamma_0", "gamma_1"),
+#   function.arg = c("GDP_PPP_pcap", "density_psqkm", "alpha_0", "alpha_1", "xmid", "scal", "gamma_0", "gamma_1", "Gini")
+# )
+# 
+# 
+# 
+# nlslm_fit_logistic_4 <- nlsLM(
+#   ES_pcap ~ multiple_logistic_model4(GDP_PPP_pcap_thousands, density_psqkm, alpha_0, alpha_1, xmid, scal, gamma_0, gamma_1, Gini_01),
+#   data = data1,
+#   start = c(
+#     alpha_0 = 1000,
+#     alpha_1 = 0,
+#     xmid = 10000,
+#     scal = 2000,
+#     gamma_0 = 1,
+#     gamma_1 = 0.001
+#   ),
+#   # lower = c(
+#   #   alpha_0 = -Inf,
+#   #   alpha_1 = -Inf,
+#   #   alpha_2 = -Inf,
+#   #   k = 0,
+#   #   lambda = 0,
+#   #   gamma = 0
+#   # ),
+#   na.action = na.exclude,
+#   control = nls.lm.control(maxiter = 500)
+# )
+# 
+# # Display model summary
+# summary(nlslm_fit_logistic_4)
+# 
+# # Extract starting values from nlsLM fit
+# start_vals <- list(fixed = coef(nlslm_fit_logistic_4))
+# 
+# # # Fit nonlinear mixed-effects model with random effect on alpha_0
+# # fit_logistic_4_nlme <- nlme(
+# #   model = ES_pcap ~ multiple_logistic_model4(GDP_PPP_pcap_thousands, 
+# #           density_psqkm, alpha_0, alpha_1, xmid, scal, gamma_0, gamma_1, Gini_01),
+# #   data = data1,
+# #   fixed = alpha_0 + alpha_1 + xmid + scal + gamma_0 + gamma_1 ~ 1,
+# #   random = alpha_1 ~ 1 | country_id,  # Random effect on alpha_0
+# #   start = start_vals,
+# #   na.action = na.exclude,
+# #   control = nlmeControl(
+# #     pnlsTol = 0.5,
+# #     maxIter = 500,
+# #     minFactor = 1e-10,
+# #     msMaxIter = 500,
+# #     warnOnly = TRUE
+# #   )
+# # )
+# # 
+# # summary(fit_logistic_4_nlme)
+# # 
+# # fit_weibull_4 <- fit_logistic_4_nlme
+
+################################################################################
+# EVALUATE MODEL OVER A GRID OF VALUES
+################################################################################
+
+# # Define the logistic model function
+# logistic_model <- function(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal) {
+#   (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((GDP_PPP_pcap - xmid) / scal)))
+# }
+# 
+# logistic_model <- function(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal) {
+#   (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp(-(xmid - GDP_PPP_pcap) / scal)))
+# }
+# 
+# # Set parameter values
+# alpha_0 <- 15000
+# alpha_1 <- -0.15
+# xmid <- 50000
+# scal <- 45000
+# 
+# # Create sequences
+# GDP_PPP_pcap_vals <- seq(10000, 100000, length.out = 100)
+# density_vals <- seq(10, 1000, length.out = 100)
+# 
+# # Create grid and compute z values
+# z_vals <- outer(density_vals, GDP_PPP_pcap_vals, Vectorize(function(d, gdp) {
+#   logistic_model(gdp, d, alpha_0, alpha_1, xmid, scal)
+# }))
+# 
+# # Create interactive 3D surface plot
+# (plot1 <- plot_ly(
+#   x = ~density_vals,
+#   y = ~GDP_PPP_pcap_vals,
+#   z = ~z_vals
+# ) %>%
+#     add_surface() %>%
+#     layout(
+#       title = "Interactive 3D Surface Plot of Logistic Model",
+#       scene = list(
+#         xaxis = list(title = "Population Density (per sq km)"),
+#         yaxis = list(title = "GDP PPP per Capita"),
+#         zaxis = list(title = "ES per capita")
+#       )
+#     ))
+# 
+# htmlwidgets::saveWidget(plot1, here::here("plots/logistic_model_1_plot.html"))
+
+##################################################################################
+# Logistic 3 grid values
+
+# # Set parameter values
+# alpha_0 <- 20000
+# alpha_1 <- -0.15
+# xmid <- 25000
+# scal <- 45500
+# beta_1 <- 0.05
+# beta_0 <- 0.01
+# 
+# # Create a grid of values
+# GDP_PPP_pcap_vals <- seq(10000, 100000, length.out = 100)
+# density_vals <- seq(10, 1000, length.out = 100)
+# gini_vals <- seq(0, 1, length.out = 100)
+# grid <- expand.grid(GDP_PPP_pcap = GDP_PPP_pcap_vals, density_psqkm = density_vals, Gini = gini_vals)
+# 
+# # Compute model values
+# grid$logistic_value <- with(grid, logistic_model_3(GDP_PPP_pcap, density_psqkm, Gini, alpha_0, alpha_1, xmid, scal, beta_1, beta_0))
+# 
+# # Plot using ggplot2
+# ggplot(grid, aes(x = GDP_PPP_pcap, y = density_psqkm, z = logistic_value)) +
+#   geom_contour_filled() +
+#   scale_fill_viridis_d() +
+#   labs(
+#     title = "Logistic Model Visualization",
+#     x = "GDP_PPP_pcap",
+#     y = "Population Density (per sq km)",
+#     fill = "Model Output"
+#   ) +
+#   theme_minimal()

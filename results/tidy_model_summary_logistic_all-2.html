@@ -280,20 +280,178 @@ border: 0;
 
 </head>
 <body>
-<table class="table table-striped table-hover" style="color: black; width: auto !important; margin-left: auto; margin-right: auto;">
-<caption>Model Fit Statistics: Logistic 1 Model wo Gini</caption>
+<table class="table" style="color: black; width: auto !important; margin-left: auto; margin-right: auto;">
+<caption>Logistic Model Summaries</caption>
  <thead>
   <tr>
    <th style="text-align:left;"> Model </th>
-   <th style="text-align:right;"> AIC </th>
-   <th style="text-align:right;"> BIC </th>
+   <th style="text-align:left;"> term </th>
+   <th style="text-align:right;"> estimate </th>
+   <th style="text-align:right;"> std.error </th>
+   <th style="text-align:right;"> statistic </th>
+   <th style="text-align:right;"> p.value </th>
   </tr>
  </thead>
 <tbody>
   <tr>
-   <td style="text-align:left;"> Logistic 1: without Gini </td>
-   <td style="text-align:right;"> 81779.52 </td>
-   <td style="text-align:right;"> 81812.25 </td>
+   <td style="text-align:left;"> model1 </td>
+   <td style="text-align:left;"> alpha_0 </td>
+   <td style="text-align:right;"> 7840.690269 </td>
+   <td style="text-align:right;"> 74.3921284 </td>
+   <td style="text-align:right;"> 105.3967729 </td>
+   <td style="text-align:right;"> 0.0000000 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> model1 </td>
+   <td style="text-align:left;"> alpha_1 </td>
+   <td style="text-align:right;"> -2.815197 </td>
+   <td style="text-align:right;"> 0.2176554 </td>
+   <td style="text-align:right;"> -12.9341919 </td>
+   <td style="text-align:right;"> 0.0000000 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> model1 </td>
+   <td style="text-align:left;"> xmid </td>
+   <td style="text-align:right;"> 25250.401207 </td>
+   <td style="text-align:right;"> 231.7982323 </td>
+   <td style="text-align:right;"> 108.9326737 </td>
+   <td style="text-align:right;"> 0.0000000 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> model1 </td>
+   <td style="text-align:left;"> scal </td>
+   <td style="text-align:right;"> 8326.010073 </td>
+   <td style="text-align:right;"> 127.0320420 </td>
+   <td style="text-align:right;"> 65.5425981 </td>
+   <td style="text-align:right;"> 0.0000000 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> model2 </td>
+   <td style="text-align:left;"> alpha_0 </td>
+   <td style="text-align:right;"> 7293.358787 </td>
+   <td style="text-align:right;"> 94.7910863 </td>
+   <td style="text-align:right;"> 76.9413989 </td>
+   <td style="text-align:right;"> 0.0000000 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> model2 </td>
+   <td style="text-align:left;"> alpha_1 </td>
+   <td style="text-align:right;"> -2.457319 </td>
+   <td style="text-align:right;"> 0.2290277 </td>
+   <td style="text-align:right;"> -10.7293543 </td>
+   <td style="text-align:right;"> 0.0000000 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> model2 </td>
+   <td style="text-align:left;"> xmid </td>
+   <td style="text-align:right;"> 23432.863927 </td>
+   <td style="text-align:right;"> 1664.7949247 </td>
+   <td style="text-align:right;"> 14.0755258 </td>
+   <td style="text-align:right;"> 0.0000000 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> model2 </td>
+   <td style="text-align:left;"> scal </td>
+   <td style="text-align:right;"> 8155.969662 </td>
+   <td style="text-align:right;"> 610.4904950 </td>
+   <td style="text-align:right;"> 13.3596997 </td>
+   <td style="text-align:right;"> 0.0000000 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> model2 </td>
+   <td style="text-align:left;"> beta_1 </td>
+   <td style="text-align:right;"> 2.955460 </td>
+   <td style="text-align:right;"> 0.4516505 </td>
+   <td style="text-align:right;"> 6.5436878 </td>
+   <td style="text-align:right;"> 0.0000000 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> model3 </td>
+   <td style="text-align:left;"> alpha_0 </td>
+   <td style="text-align:right;"> 8492.936666 </td>
+   <td style="text-align:right;"> 139.1962380 </td>
+   <td style="text-align:right;"> 61.0141250 </td>
+   <td style="text-align:right;"> 0.0000000 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> model3 </td>
+   <td style="text-align:left;"> alpha_1 </td>
+   <td style="text-align:right;"> -2.893991 </td>
+   <td style="text-align:right;"> 0.2340300 </td>
+   <td style="text-align:right;"> -12.3658945 </td>
+   <td style="text-align:right;"> 0.0000000 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> model3 </td>
+   <td style="text-align:left;"> xmid </td>
+   <td style="text-align:right;"> 2000.000000 </td>
+   <td style="text-align:right;"> 5679.9531551 </td>
+   <td style="text-align:right;"> 0.3521156 </td>
+   <td style="text-align:right;"> 0.7247654 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> model3 </td>
+   <td style="text-align:left;"> scal </td>
+   <td style="text-align:right;"> 12668.124118 </td>
+   <td style="text-align:right;"> 699.1801905 </td>
+   <td style="text-align:right;"> 18.1185398 </td>
+   <td style="text-align:right;"> 0.0000000 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> model3 </td>
+   <td style="text-align:left;"> beta_1 </td>
+   <td style="text-align:right;"> -4.337993 </td>
+   <td style="text-align:right;"> 1.5207700 </td>
+   <td style="text-align:right;"> -2.8524981 </td>
+   <td style="text-align:right;"> 0.0043542 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> model3 </td>
+   <td style="text-align:left;"> beta_0 </td>
+   <td style="text-align:right;"> 6.654807 </td>
+   <td style="text-align:right;"> 2.2798429 </td>
+   <td style="text-align:right;"> 2.9189761 </td>
+   <td style="text-align:right;"> 0.0035264 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> model4 </td>
+   <td style="text-align:left;"> alpha_0 </td>
+   <td style="text-align:right;"> 7863.390176 </td>
+   <td style="text-align:right;"> 77.1012562 </td>
+   <td style="text-align:right;"> 101.9878347 </td>
+   <td style="text-align:right;"> 0.0000000 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> model4 </td>
+   <td style="text-align:left;"> alpha_1 </td>
+   <td style="text-align:right;"> -2.835844 </td>
+   <td style="text-align:right;"> 0.2187283 </td>
+   <td style="text-align:right;"> -12.9651402 </td>
+   <td style="text-align:right;"> 0.0000000 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> model4 </td>
+   <td style="text-align:left;"> xmid </td>
+   <td style="text-align:right;"> 25269.321225 </td>
+   <td style="text-align:right;"> 236.4180202 </td>
+   <td style="text-align:right;"> 106.8840742 </td>
+   <td style="text-align:right;"> 0.0000000 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> model4 </td>
+   <td style="text-align:left;"> scal </td>
+   <td style="text-align:right;"> 8912.252075 </td>
+   <td style="text-align:right;"> 404.7587954 </td>
+   <td style="text-align:right;"> 22.0186743 </td>
+   <td style="text-align:right;"> 0.0000000 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> model4 </td>
+   <td style="text-align:left;"> beta_1 </td>
+   <td style="text-align:right;"> -1475.549626 </td>
+   <td style="text-align:right;"> 961.4917116 </td>
+   <td style="text-align:right;"> -1.5346462 </td>
+   <td style="text-align:right;"> 0.1249294 </td>
   </tr>
 </tbody>
 </table>
