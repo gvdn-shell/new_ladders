@@ -1,9 +1,36 @@
-library(ggplot2)
-library(dplyr)
-library(here)
-library(plotly)
-library(tibble)
+################################################################################
+# SETUP: Clean Environment and Load Required Packages
+################################################################################
 
+# Remove all objects from the workspace (use with caution)
+rm(list = ls())
+
+# Define number of CPU cores for parallel installation
+ncpus <- 12
+
+# List of required packages
+packages <- c(
+  "ggplot2", "dplyr", "here", "plotly", "tibble", "extrafont", "showtext",
+  "readxl", "tidyr", "htmlwidgets", "scales"
+)
+
+# Install missing packages
+installed_packages <- packages %in% rownames(installed.packages())
+if (any(!installed_packages)) {
+  install.packages(packages[!installed_packages], dependencies = TRUE, Ncpus = ncpus)
+}
+
+# Load all required packages
+invisible(lapply(packages, library, character.only = TRUE))
+
+# Load fonts for plotting
+extrafont::loadfonts(device = "win")
+font_add("ShellMedium", "ShellMedium.ttf")  # Add custom font
+showtext_auto()  # Automatically use showtext for new devices
+
+################################################################################
+# PLOT: Standardized theme for Scenarios
+################################################################################
 create_theme1 <- function(text_size = 14) {
   theme(
     axis.title.y = element_text(size = text_size, family = "ShellMedium, sans"),
@@ -31,9 +58,6 @@ create_theme1 <- function(text_size = 14) {
 }
 
 ################################################################### 
-# Load Shell brand color palette
-library(readxl)
-library(dplyr)
 
 # Load Shell brand color palette
 shell.brand.palette <- readRDS(here::here("data", "shell_brand_palette_extended.rds")) %>%
@@ -44,194 +68,17 @@ shell.brand.palette <- readRDS(here::here("data", "shell_brand_palette_extended.
   select(country_id, Hex) %>%
   distinct()
 
-####################################
-####################################
+################################################################################
 
 weibull_params <- readRDS(here::here("results/model_parameters_all_weibull_models.rds")) %>%
-   rownames_to_column(var = "model") 
- 
-# Weibull 3:
+  rownames_to_column(var = "model") 
 
-# Subset Weibull 3 parameters
-weibull_params_3 <- weibull_params %>%
-  filter(model == "model_chosen_3") %>%
-  select(-model)
-
-#### Weibull 3
-# Define the modified sigmoid function
-sigmoid_modified <- function(x, x2, pop_dens, 
-                             scal, b1, alpha_0, alpha_1, b2) {
-  (alpha_0 + alpha_1 * pop_dens) * (1 - exp(-(x/scal)^(b2 + b1*x2)))
-}
-
-# Constants
-# Get parameters from weibull_params_3
-alpha_0 <- weibull_params_3$alpha_0
-alpha_1 <- weibull_params_3$alpha_1
-scal <- weibull_params_3$scal
-shape <- weibull_params_3$shape
-gamma <- weibull_params_3$gamma
-
-# Population density
-pop_dens <- 270 # Median value
-
-# Generate data
-x_vals <- seq(0, 125000, length.out = 500)
-x2_vals <- seq(0.3, 0.7, by = 0.2)
-
-# weibull_model_3 <- deriv(
-#   ~ (alpha_0 + alpha_1 * density_psqkm) * (1 - exp(-(GDP_PPP_pcap/(scal))^(gamma + shape * Gini))),
-#   namevec = c("alpha_0", "alpha_1", "scal", "shape", "gamma"),
-#   function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "alpha_0", "alpha_1", "scal", "shape", "gamma")
-# )
-
-
-# Create plot data
-plot_data <- do.call(rbind, 
-                     lapply(x2_vals, function(x2_val) {
-                       data.frame(
-                         x = x_vals,
-                         y = sigmoid_modified(x_vals, x2 = x2_val, pop_dens = pop_dens,
-                                              scal = scal, b1 = shape,
-                                              alpha_0 = alpha_0, alpha_1 = alpha_1, b2 = gamma),
-                         x2 = as.factor(round(x2_val, 2))
-                       )
-                     })
-)
-
-
-# Interpolate y-values at 25th percentile of x and 75th percentile of x
-intersections <- plot_data %>%
-  group_by(x2) %>%
-  summarise(
-    x_25 = quantile(x, 0.25, na.rm = TRUE),
-    x_75 = quantile(x, 0.75, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  left_join(plot_data, by = "x2") %>%
-  group_by(x2) %>%
-  summarise(
-    y_25 = approx(x, y, xout = first(x_25))$y,
-    y_75 = approx(x, y, xout = first(x_75))$y,
-    .groups = "drop"
-  ) %>%
-  tidyr::pivot_longer(cols = starts_with("y_"), names_to = "x_val", values_to = "y") %>%
-  mutate(x_val = ifelse(x_val == "y_25", "25th percentile", "75th percentile"))
-
-p1 <- ggplot(plot_data, aes(x = x, y = y, color = x2)) +
-  geom_line() +
-  theme_bw() +
-  scale_color_manual(values = shell.brand.palette$Hex, name = "Gini") +
-  create_theme1(text_size = 32) +
-  labs(
-    title = expression(paste("Effect of Gini on Energy Service Captured by Weibull Curve")),
-    x = "GDP per Capita",
-    y = "Energy Service"
-  ) +
-  theme(legend.position = "right") +
-  guides(color = guide_legend(override.aes = list(linetype = "solid"))) +
-  annotate(
-    "text",
-    x = Inf, y = Inf,
-    label = "italic(y == (alpha[0] + alpha[1]*pop_dens[it]) * (1 + exp(-((GDPpcap[it]/ scal)^(gamma + shape * Gini[it]) ))))",
-    hjust = 1.1, vjust = 8.5,
-    parse = TRUE,
-    size = 14
-  )
-
-
-# Save to high resolution dpi
-ggsave(here::here("plots/Sigmoid_Gini_weibull3.png"), plot = p1, width = 15, height = 10, dpi = 300)
-
-
+# PLOT: WEIBULL MODEL 6
 ################################################################################
-# Create meshgrid
-grid <- expand.grid(x = x_vals, x2 = x2_vals)
-
-# Compute Energy Service values
-# grid$z <- with(grid, sigmoid_modified(x_vals, x2 = x2_val, pop_dens = pop_dens,
-#                                       scal = scal, b1 = shape,
-#                                       alpha_0 = alpha_0, alpha_1 = alpha_1, b2 = gamma))
-grid$z <- with(grid, sigmoid_modified(x = x, x2 = x2, pop_dens = pop_dens,
-                                      scal = scal, b1 = shape,
-                                      alpha_0 = alpha_0, alpha_1 = alpha_1, b2 = gamma))
-
-
-
-# Reshape for plotly
-z_matrix <- matrix(grid$z, nrow = length(x2_vals), ncol = length(x_vals), byrow = TRUE)
-
-# Create 3D surface plot
-fig <- plot_ly(
-  x = ~x_vals,
-  y = ~x2_vals,
-  z = ~z_matrix,
-  type = "surface",
-  colorscale = "Viridis"
-) %>%
-  layout(
-    title = "Energy Service Levels as a Function of GDP_PPP and Gini",
-    scene = list(
-      xaxis = list(title = "GDP per Capita (PPP)"),
-      yaxis = list(title = "Gini Coefficient"),
-      zaxis = list(title = "Energy Service")
-    )
-  )
-
-# library(plotly)
-# 
-# fig <- plot_ly(
-#   x = ~x_vals,
-#   y = ~x2_vals,
-#   z = ~z_matrix,
-#   type = "surface",
-#   colorscale = "Viridis",
-#   showscale = TRUE,
-#   contours = list(
-#     z = list(show = TRUE, usecolormap = TRUE, highlightcolor = "limegreen", project = list(z = TRUE))
-#   )
-# ) %>%
-#   layout(
-#     title = "Energy Service Levels as a Function of GDP per Capita and Gini",
-#     scene = list(
-#       xaxis = list(
-#         title = "GDP per Capita (PPP)",
-#         tickformat = ".0f",
-#         backgroundcolor = "rgb(230,230,230)"
-#       ),
-#       yaxis = list(
-#         title = "Gini Coefficient",
-#         tickformat = ".2f",
-#         backgroundcolor = "rgb(230,230,230)"
-#       ),
-#       zaxis = list(
-#         title = "Energy Service",
-#         backgroundcolor = "rgb(230,230,230)"
-#       ),
-#       camera = list(eye = list(x = 1.5, y = 1.5, z = 0.8))
-#     ),
-#     margin = list(l = 0, r = 0, b = 0, t = 50),
-#     height = 700
-#   )
-# 
-# fig
-
-
-# Save to HTML
-htmlwidgets::saveWidget(fig, here::here("plots/energy_service_3d_plot_weibull3.html"), selfcontained = TRUE)
-
-
 ###############################################################################################################################################
 # Weibull 6:
 
 
-weibull_model_6 <- deriv(
-  ~ (alpha_0 + alpha_1 * density_psqkm) *
-    (1 - exp(-(GDP_PPP_pcap / (scal_base + scal_slope * Gini)) ^ (shape_base + shape_slope * (Gini - gini_ref)))),
-  namevec = c("alpha_0", "alpha_1", "scal_base", "scal_slope", "shape_base", "shape_slope", "gini_ref"),
-  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini",
-                   "alpha_0", "alpha_1", "scal_base", "scal_slope", "shape_base", "shape_slope", "gini_ref")
-)
 # Subset Weibull 6 parameters
 weibull_params_6 <- weibull_params %>%
   filter(model == "model_chosen_6") %>%
@@ -299,9 +146,9 @@ p1 <- ggplot(plot_data, aes(x = x, y = y, color = x2)) +
   scale_color_manual(values = shell.brand.palette$Hex, name = "Gini") +
   create_theme1(text_size = 32) +
   labs(
-    title = expression(paste("Effect of Gini on Energy Service Captured by Weibull Curve")),
+    title = expression(paste("Effect of Gini on Energy Service Captured by Weibull Model 6")),
     x = "GDP per Capita",
-    y = "Energy Service"
+    y = "Energy Service (vehicle kms/ capita/ year)"
   ) +
   theme(legend.position = "right") +
   guides(color = guide_legend(override.aes = list(linetype = "solid"))) +
@@ -314,6 +161,7 @@ p1 <- ggplot(plot_data, aes(x = x, y = y, color = x2)) +
     size = 14
   )
 
+p1_wei6 <- p1
 
 # Save to high resolution dpi
 ggsave(here::here("plots/Sigmoid_Gini_weibull6.png"), plot = p1, width = 15, height = 10, dpi = 300)
@@ -396,6 +244,479 @@ fig <- plot_ly(
 htmlwidgets::saveWidget(fig, here::here("plots/energy_service_3d_plot_weibull6.html"), selfcontained = TRUE)
 
 
+#####################################################################################################################
+# Weibull 2
+# Subset Weibull 3 parameters
+weibull_params_3 <- weibull_params %>%
+  filter(model == "model_chosen_2") %>%
+  select(-model)
+
+weibull_model_2 <- deriv(
+  ~ (alpha_0 + alpha_1 * density_psqkm) * (1 - exp(-(GDP_PPP_pcap/(gamma + scal * Gini))^shape)),
+  namevec = c("alpha_0", "alpha_1", "scal", "shape", "gamma"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "alpha_0", "alpha_1", "scal", "shape", "gamma")
+)
+
+#### Weibull 3
+# Define the modified sigmoid function
+sigmoid_modified <- function(x, x2, pop_dens, 
+                             scal, shape, alpha_0, alpha_1, gamma) {
+  (alpha_0 + alpha_1 * pop_dens) * (1 - exp(-(x/(gamma + scal * x2))^(shape)))
+}
+
+# Constants
+# Get parameters from weibull_params_3
+alpha_0 <- weibull_params_3$alpha_0
+alpha_1 <- weibull_params_3$alpha_1
+scal <- weibull_params_3$scal
+shape <- weibull_params_3$shape
+gamma <- weibull_params_3$gamma
+
+# Population density
+pop_dens <- 270 # Median value
+
+# Generate data
+x_vals <- seq(0, 125000, length.out = 500)
+x2_vals <- seq(0.3, 0.7, by = 0.2)
+
+# weibull_model_3 <- deriv(
+#   ~ (alpha_0 + alpha_1 * density_psqkm) * (1 - exp(-(GDP_PPP_pcap/(scal))^(gamma + shape * Gini))),
+#   namevec = c("alpha_0", "alpha_1", "scal", "shape", "gamma"),
+#   function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "alpha_0", "alpha_1", "scal", "shape", "gamma")
+# )
+
+
+# Create plot data
+plot_data <- do.call(rbind, 
+                     lapply(x2_vals, function(x2_val) {
+                       data.frame(
+                         x = x_vals,
+                         y = sigmoid_modified(x_vals, x2 = x2_val, pop_dens = pop_dens,
+                                              scal = scal, shape = shape,
+                                              alpha_0 = alpha_0, alpha_1 = alpha_1, gamma = gamma),
+                         x2 = as.factor(round(x2_val, 2))
+                       )
+                     })
+)
+
+
+# Interpolate y-values at 25th percentile of x and 75th percentile of x
+intersections <- plot_data %>%
+  group_by(x2) %>%
+  summarise(
+    x_25 = quantile(x, 0.25, na.rm = TRUE),
+    x_75 = quantile(x, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  left_join(plot_data, by = "x2") %>%
+  group_by(x2) %>%
+  summarise(
+    y_25 = approx(x, y, xout = first(x_25))$y,
+    y_75 = approx(x, y, xout = first(x_75))$y,
+    .groups = "drop"
+  ) %>%
+  tidyr::pivot_longer(cols = starts_with("y_"), names_to = "x_val", values_to = "y") %>%
+  mutate(x_val = ifelse(x_val == "y_25", "25th percentile", "75th percentile"))
+
+p1 <- ggplot(plot_data, aes(x = x, y = y, color = x2)) +
+  geom_line() +
+  theme_bw() +
+  scale_color_manual(values = shell.brand.palette$Hex, name = "Gini") +
+  create_theme1(text_size = 32) +
+  labs(
+    title = expression(paste("Effect of Gini on Energy Service Captured by Weibull Model 2")),
+    x = "GDP per Capita",
+    y = "Energy Service (vehicle kms/ capita/ year)"
+  ) +
+  theme(legend.position = "right") +
+  guides(color = guide_legend(override.aes = list(linetype = "solid"))) +
+  annotate(
+    "text",
+    x = Inf, y = Inf,
+    label = "italic(y == (alpha[0] + alpha[1]*pop_dens[it]) * (1 + exp(-((GDPpcap[it]/ (gamma + scal * Gini))^shape) )))",
+    hjust = 1.1, vjust = 8.5,
+    parse = TRUE,
+    size = 14
+  )
+
+
+# Save to high resolution dpi
+ggsave(here::here("plots/Sigmoid_Gini_weibull2.png"), plot = p1, width = 15, height = 10, dpi = 300)
+
+
+
+
+####################################################################################################################
+
+
+# Weibull 3:
+
+# Subset Weibull 3 parameters
+weibull_params_3 <- weibull_params %>%
+  filter(model == "model_chosen_3") %>%
+  select(-model)
+
+#### Weibull 3
+# Define the modified sigmoid function
+sigmoid_modified <- function(x, x2, pop_dens, 
+                             scal, b1, alpha_0, alpha_1, b2) {
+  (alpha_0 + alpha_1 * pop_dens) * (1 - exp(-(x/scal)^(b2 + b1*x2)))
+}
+
+# Constants
+# Get parameters from weibull_params_3
+alpha_0 <- weibull_params_3$alpha_0
+alpha_1 <- weibull_params_3$alpha_1
+scal <- weibull_params_3$scal
+shape <- weibull_params_3$shape
+gamma <- weibull_params_3$gamma
+
+# Population density
+pop_dens <- 270 # Median value
+
+# Generate data
+x_vals <- seq(0, 125000, length.out = 500)
+x2_vals <- seq(0.3, 0.7, by = 0.2)
+
+# weibull_model_3 <- deriv(
+#   ~ (alpha_0 + alpha_1 * density_psqkm) * (1 - exp(-(GDP_PPP_pcap/(scal))^(gamma + shape * Gini))),
+#   namevec = c("alpha_0", "alpha_1", "scal", "shape", "gamma"),
+#   function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "alpha_0", "alpha_1", "scal", "shape", "gamma")
+# )
+
+
+# Create plot data
+plot_data <- do.call(rbind, 
+                     lapply(x2_vals, function(x2_val) {
+                       data.frame(
+                         x = x_vals,
+                         y = sigmoid_modified(x_vals, x2 = x2_val, pop_dens = pop_dens,
+                                              scal = scal, b1 = shape,
+                                              alpha_0 = alpha_0, alpha_1 = alpha_1, b2 = gamma),
+                         x2 = as.factor(round(x2_val, 2))
+                       )
+                     })
+)
+
+
+# Interpolate y-values at 25th percentile of x and 75th percentile of x
+intersections <- plot_data %>%
+  group_by(x2) %>%
+  summarise(
+    x_25 = quantile(x, 0.25, na.rm = TRUE),
+    x_75 = quantile(x, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  left_join(plot_data, by = "x2") %>%
+  group_by(x2) %>%
+  summarise(
+    y_25 = approx(x, y, xout = first(x_25))$y,
+    y_75 = approx(x, y, xout = first(x_75))$y,
+    .groups = "drop"
+  ) %>%
+  tidyr::pivot_longer(cols = starts_with("y_"), names_to = "x_val", values_to = "y") %>%
+  mutate(x_val = ifelse(x_val == "y_25", "25th percentile", "75th percentile"))
+
+p1 <- ggplot(plot_data, aes(x = x, y = y, color = x2)) +
+  geom_line() +
+  theme_bw() +
+  scale_color_manual(values = shell.brand.palette$Hex, name = "Gini") +
+  create_theme1(text_size = 32) +
+  labs(
+    title = expression(paste("Effect of Gini on Energy Service Captured by Weibull Model 3")),
+    x = "GDP per Capita",
+    y = "Energy Service (vehicle kms/ capita/ year)"
+  ) +
+  theme(legend.position = "right") +
+  guides(color = guide_legend(override.aes = list(linetype = "solid"))) +
+  annotate(
+    "text",
+    x = Inf, y = Inf,
+    label = "italic(y == (alpha[0] + alpha[1]*pop_dens[it]) * (1 + exp(-((GDPpcap[it]/ scal)^(gamma + shape * Gini[it]) ))))",
+    hjust = 1.1, vjust = 8.5,
+    parse = TRUE,
+    size = 14
+  )
+
+p1_wei3 <- p1
+# Save to high resolution dpi
+ggsave(here::here("plots/Sigmoid_Gini_weibull3.png"), plot = p1, width = 15, height = 10, dpi = 300)
+
+
+################################################################################
+# Create meshgrid
+grid <- expand.grid(x = x_vals, x2 = x2_vals)
+
+# Compute Energy Service values
+# grid$z <- with(grid, sigmoid_modified(x_vals, x2 = x2_val, pop_dens = pop_dens,
+#                                       scal = scal, b1 = shape,
+#                                       alpha_0 = alpha_0, alpha_1 = alpha_1, b2 = gamma))
+grid$z <- with(grid, sigmoid_modified(x = x, x2 = x2, pop_dens = pop_dens,
+                                      scal = scal, b1 = shape,
+                                      alpha_0 = alpha_0, alpha_1 = alpha_1, b2 = gamma))
+
+
+
+# Reshape for plotly
+z_matrix <- matrix(grid$z, nrow = length(x2_vals), ncol = length(x_vals), byrow = TRUE)
+
+# Create 3D surface plot
+fig <- plot_ly(
+  x = ~x_vals,
+  y = ~x2_vals,
+  z = ~z_matrix,
+  type = "surface",
+  colorscale = "Viridis"
+) %>%
+  layout(
+    title = "Energy Service Levels as a Function of GDP_PPP and Gini",
+    scene = list(
+      xaxis = list(title = "GDP per Capita (PPP)"),
+      yaxis = list(title = "Gini Coefficient"),
+      zaxis = list(title = "Energy Service")
+    )
+  )
+
+# library(plotly)
+# 
+# fig <- plot_ly(
+#   x = ~x_vals,
+#   y = ~x2_vals,
+#   z = ~z_matrix,
+#   type = "surface",
+#   colorscale = "Viridis",
+#   showscale = TRUE,
+#   contours = list(
+#     z = list(show = TRUE, usecolormap = TRUE, highlightcolor = "limegreen", project = list(z = TRUE))
+#   )
+# ) %>%
+#   layout(
+#     title = "Energy Service Levels as a Function of GDP per Capita and Gini",
+#     scene = list(
+#       xaxis = list(
+#         title = "GDP per Capita (PPP)",
+#         tickformat = ".0f",
+#         backgroundcolor = "rgb(230,230,230)"
+#       ),
+#       yaxis = list(
+#         title = "Gini Coefficient",
+#         tickformat = ".2f",
+#         backgroundcolor = "rgb(230,230,230)"
+#       ),
+#       zaxis = list(
+#         title = "Energy Service",
+#         backgroundcolor = "rgb(230,230,230)"
+#       ),
+#       camera = list(eye = list(x = 1.5, y = 1.5, z = 0.8))
+#     ),
+#     margin = list(l = 0, r = 0, b = 0, t = 50),
+#     height = 700
+#   )
+# 
+# fig
+
+
+# Save to HTML
+htmlwidgets::saveWidget(fig, here::here("plots/energy_service_3d_plot_weibull3.html"), selfcontained = TRUE)
+
+####################################################################################################################
+
+weibull_params <- readRDS(here::here("results/model_parameters_all_logistic_models.rds")) %>%
+  rownames_to_column(var = "model") 
+# Logistic 5:
+
+# Subset Weibull 3 parameters
+weibull_params_3 <- weibull_params %>%
+  filter(model == "model_chosen_5") %>%
+  select(-model)
+
+logistic_model_5 <- deriv(
+  ~ (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap)/(gamma_0 + gamma_1 * Gini)))) ^ (beta_0 + beta_1 * Gini),
+  namevec = c("alpha_0", "alpha_1", "xmid", "beta_0", "beta_1", "gamma_0", "gamma_1"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "alpha_0", "alpha_1", "xmid", "beta_0", "beta_1", "gamma_0", "gamma_1")
+)
+
+#### Weibull 3
+# Define the modified sigmoid function
+sigmoid_modified <- function(x, x2, pop_dens, 
+                             xmid, alpha_0, alpha_1, gamma_0, gamma_1, beta_0, beta_1) {
+  (alpha_0 + alpha_1 * pop_dens) * (1 / (1 + exp((xmid - x)/(gamma_0 + gamma_1 * x2)))) ^ (beta_0 + beta_1 * x2)
+}
+
+# Constants
+# Get parameters from weibull_params_3
+alpha_0 <- weibull_params_3$alpha_0
+alpha_1 <- weibull_params_3$alpha_1
+xmid <- weibull_params_3$xmid
+gamma_0 <- weibull_params_3$gamma_0
+gamma_1 <- weibull_params_3$gamma_1
+beta_0 <- weibull_params_3$beta_0
+beta_1 <- weibull_params_3$beta_1
+
+
+# Population density
+pop_dens <- 270 # Median value
+
+# Generate data
+x_vals <- seq(0, 125000, length.out = 500)
+x2_vals <- seq(0.3, 0.7, by = 0.2)
+
+# weibull_model_3 <- deriv(
+#   ~ (alpha_0 + alpha_1 * density_psqkm) * (1 - exp(-(GDP_PPP_pcap/(scal))^(gamma + shape * Gini))),
+#   namevec = c("alpha_0", "alpha_1", "scal", "shape", "gamma"),
+#   function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "alpha_0", "alpha_1", "scal", "shape", "gamma")
+# )
+
+
+# Create plot data
+plot_data <- do.call(rbind, 
+                     lapply(x2_vals, function(x2_val) {
+                       data.frame(
+                         x = x_vals,
+                         y = sigmoid_modified(x_vals, x2 = x2_val, pop_dens = pop_dens,
+                                              xmid = xmid, alpha_0 = alpha_0 , alpha_1 = alpha_1, gamma_0 = gamma_0, 
+                                              gamma_1 = gamma_1, beta_0 = beta_0, beta_1 =beta_1),
+                         x2 = as.factor(round(x2_val, 2))
+                       )
+                     })
+)
+
+
+# Interpolate y-values at 25th percentile of x and 75th percentile of x
+intersections <- plot_data %>%
+  group_by(x2) %>%
+  summarise(
+    x_25 = quantile(x, 0.25, na.rm = TRUE),
+    x_75 = quantile(x, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  left_join(plot_data, by = "x2") %>%
+  group_by(x2) %>%
+  summarise(
+    y_25 = approx(x, y, xout = first(x_25))$y,
+    y_75 = approx(x, y, xout = first(x_75))$y,
+    .groups = "drop"
+  ) %>%
+  tidyr::pivot_longer(cols = starts_with("y_"), names_to = "x_val", values_to = "y") %>%
+  mutate(x_val = ifelse(x_val == "y_25", "25th percentile", "75th percentile"))
+
+p1 <- ggplot(plot_data, aes(x = x, y = y, color = x2)) +
+  geom_line() +
+  theme_bw() +
+  scale_color_manual(values = shell.brand.palette$Hex, name = "Gini") +
+  create_theme1(text_size = 32) +
+  labs(
+    title = expression(paste("Effect of Gini on Energy Service Captured by Logistic Model 5")),
+    x = "GDP per Capita",
+    y = "Energy Service (vehicle kms/ capita/ year)"
+  ) +
+  theme(legend.position = "right") +
+  guides(color = guide_legend(override.aes = list(linetype = "solid"))) +
+  annotate(
+    "text",
+    x = Inf, y = Inf,
+    label = "italic(y == (alpha[0] + alpha[1]*pop_dens[it]) * (1 / (1 + exp((xmid - GDP_PPP_pcap)/(gamma[0] + gamma[1] * Gini[it])))) ^ (beta[0] + beta[1] * Gini[it]))",
+    hjust = 1.1, vjust = 8.5,
+    parse = TRUE,
+    size = 14
+  )
+
+p1_log5 <- p1
+
+
+# Save to high resolution dpi
+ggsave(here::here("plots/Sigmoid_Gini_logistic5.png"), plot = p1, width = 15, height = 10, dpi = 300)
+
+ggsave(here::here("plots/Sigmoid_Gini_logistic5.png"), plot = p1_log5, width = 15, height = 15, dpi = 200)
+ggsave(here::here("plots/Sigmoid_Gini_weibull6.png"), plot = p1_wei6, width = 15, height = 15, dpi = 200)
+ggsave(here::here("plots/Sigmoid_Gini_weibull3.png"), plot = p1_wei3, width = 15, height = 15, dpi = 200)
+
+
+#### Create a single chart with 3 columns of plots: p1_wei6, p1_wei3, p1_log5
+library(gridExtra)
+p_all <- grid.arrange(p1_wei6, p1_log5, p1_wei3,  ncol = 3)
+# Save to a png
+ggsave(here::here("plots/Sigmoid_Gini_all_models.png"), p_all, width = 30, height = 10, dpi = 300)
+
+################################################################################
+# Create meshgrid
+grid <- expand.grid(x = x_vals, x2 = x2_vals)
+
+# Compute Energy Service values
+# grid$z <- with(grid, sigmoid_modified(x_vals, x2 = x2_val, pop_dens = pop_dens,
+#                                       scal = scal, b1 = shape,
+#                                       alpha_0 = alpha_0, alpha_1 = alpha_1, b2 = gamma))
+grid$z <- with(grid, sigmoid_modified(x = x, x2 = x2, pop_dens = pop_dens,
+                                      scal = scal, b1 = shape,
+                                      alpha_0 = alpha_0, alpha_1 = alpha_1, b2 = gamma))
+
+
+
+# Reshape for plotly
+z_matrix <- matrix(grid$z, nrow = length(x2_vals), ncol = length(x_vals), byrow = TRUE)
+
+# Create 3D surface plot
+fig <- plot_ly(
+  x = ~x_vals,
+  y = ~x2_vals,
+  z = ~z_matrix,
+  type = "surface",
+  colorscale = "Viridis"
+) %>%
+  layout(
+    title = "Energy Service Levels as a Function of GDP_PPP and Gini",
+    scene = list(
+      xaxis = list(title = "GDP per Capita (PPP)"),
+      yaxis = list(title = "Gini Coefficient"),
+      zaxis = list(title = "Energy Service")
+    )
+  )
+
+# library(plotly)
+# 
+# fig <- plot_ly(
+#   x = ~x_vals,
+#   y = ~x2_vals,
+#   z = ~z_matrix,
+#   type = "surface",
+#   colorscale = "Viridis",
+#   showscale = TRUE,
+#   contours = list(
+#     z = list(show = TRUE, usecolormap = TRUE, highlightcolor = "limegreen", project = list(z = TRUE))
+#   )
+# ) %>%
+#   layout(
+#     title = "Energy Service Levels as a Function of GDP per Capita and Gini",
+#     scene = list(
+#       xaxis = list(
+#         title = "GDP per Capita (PPP)",
+#         tickformat = ".0f",
+#         backgroundcolor = "rgb(230,230,230)"
+#       ),
+#       yaxis = list(
+#         title = "Gini Coefficient",
+#         tickformat = ".2f",
+#         backgroundcolor = "rgb(230,230,230)"
+#       ),
+#       zaxis = list(
+#         title = "Energy Service",
+#         backgroundcolor = "rgb(230,230,230)"
+#       ),
+#       camera = list(eye = list(x = 1.5, y = 1.5, z = 0.8))
+#     ),
+#     margin = list(l = 0, r = 0, b = 0, t = 50),
+#     height = 700
+#   )
+# 
+# fig
+
+
+# Save to HTML
+htmlwidgets::saveWidget(fig, here::here("plots/energy_service_3d_plot_logistic5.html"), selfcontained = TRUE)
+
+
+
+
 ###############################################################################################################################################
 # Define the modified sigmoid function
 sigmoid_modified <- function(x, x2, pop_dens, 
@@ -444,7 +765,7 @@ p1 <- ggplot(plot_data, aes(x = x, y = y, color = x2)) +
   geom_line() +
   theme_bw() +
   scale_color_brewer(palette = "Set1") +
-  create_theme(text_size = 16) +
+  create_theme1(text_size = 16) +
   labs(title = expression(paste("Effect of Gini on Sigmoid Curve when ", b[1], " = 6")),
        x = "GDP per Capita",
        y = "Energy Service",
@@ -458,7 +779,7 @@ p1 <- ggplot(plot_data, aes(x = x, y = y, color = x2)) +
   
 
 # Save to high resolution dpi
-ggsave(here::here("plots/Sigmoid_Gini.png"), plot = p1, width = 15, height = 10, dpi = 300)
+ggsave(here::here("plots/Sigmoid_Gini_logistic2.png"), plot = p1, width = 15, height = 10, dpi = 300)
 
 
 ################################################################################
@@ -546,7 +867,7 @@ p1 <- ggplot(plot_data, aes(x = x, y = y, color = x2)) +
   geom_line() +
   theme_bw() +
   scale_color_brewer(palette = "Set1") +
-  create_theme(text_size = 16) +
+  create_theme1(text_size = 16) +
   labs(title = expression(paste("Effect of Gini on Sigmoid Curve when ", b[1], " = 6")),
        x = "GDP per Capita",
        y = "Energy Service",

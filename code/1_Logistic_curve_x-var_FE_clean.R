@@ -569,6 +569,12 @@ logistic_model_4 <- deriv(
   function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "alpha_0", "alpha_1", "xmid", "scal", "beta_1")
 )
 
+# logistic_model_4 <- deriv(
+#   ~ (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap)/(gamma_0 + gamma_1 * Gini)))),
+#   namevec = c("alpha_0", "alpha_1", "xmid", "gamma_0", "gamma_1"),
+#   function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "alpha_0", "alpha_1", "xmid", "gamma_0", "gamma_1")
+# )
+
 # Gini in scale and shape
 logistic_model_5 <- deriv(
   ~ (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap)/(gamma_0 + gamma_1 * Gini)))) ^ (beta_0 + beta_1 * Gini),
@@ -3274,6 +3280,29 @@ htmlreg(
   caption = "Logistic Model Summaries",
   caption.above = TRUE
 )
+
+
+model_params <- list(
+  model_chosen_1 = coef(model_chosen_1),
+  model_chosen_2 = coef(model_chosen_2),
+  model_chosen_3 = coef(model_chosen_3),
+  model_chosen_4 = coef(model_chosen_4),
+  model_chosen_5 = coef(model_chosen_5)
+)
+
+
+# Step 1: Get all unique parameter names
+all_params <- unique(unlist(lapply(model_params, names)))
+
+# Step 2: Convert each model's coefficients to a full row with all parameters
+model_params_df <- do.call(rbind, lapply(model_params, function(x) {
+  x_full <- setNames(rep(NA, length(all_params)), all_params)
+  x_full[names(x)] <- x
+  as.data.frame(t(x_full))
+}))
+
+# Step 3: Save to .rds
+saveRDS(model_params_df, here::here("results/model_parameters_all_logistic_models.rds"))
 
 
 # # Export tidy_fit for all models to html

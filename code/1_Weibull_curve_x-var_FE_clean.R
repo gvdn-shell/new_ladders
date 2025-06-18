@@ -504,6 +504,14 @@ weibull_model_5 <- deriv(
   function.arg = c("GDP_PPP_pcap", "density_psqkm", "alpha_0", "alpha_1", "scal", "shape")
 )
 
+weibull_model_6 <- deriv(
+  ~ (alpha_0 + alpha_1 * density_psqkm) *
+    (1 - exp(-(GDP_PPP_pcap / (scal_base + scal_slope * Gini)) ^ (shape_base + shape_slope * Gini))),
+  namevec = c("alpha_0", "alpha_1", "scal_base", "scal_slope", "shape_base", "shape_slope"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini",
+                   "alpha_0", "alpha_1", "scal_base", "scal_slope", "shape_base", "shape_slope")
+)
+
 # weibull_model_6 <- deriv(
 #   ~ (alpha_0 + alpha_1 * density_psqkm) * (1 - exp(-(GDP_PPP_pcap/(scal * Gini))^ (shape * Gini))),
 #   namevec = c("alpha_0", "alpha_1", "scal", "shape"),
@@ -523,13 +531,13 @@ weibull_model_5 <- deriv(
 # gamma_2 captures the quadratic effect of Gini, gamma_3 captures the linear effect of GDP_PPP_pcap,
 # and gamma_4 captures the interaction effect between Gini and GDP_PPP_pcap (allowed to vary by income level).
 
-weibull_model_6 <- deriv(
-  ~ (alpha_0 + alpha_1 * density_psqkm) *
-    (1 - exp(-(GDP_PPP_pcap / (scal_base + scal_slope * Gini)) ^ (shape_base + shape_slope * (Gini - gini_ref)))),
-  namevec = c("alpha_0", "alpha_1", "scal_base", "scal_slope", "shape_base", "shape_slope", "gini_ref"),
-  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini",
-                   "alpha_0", "alpha_1", "scal_base", "scal_slope", "shape_base", "shape_slope", "gini_ref")
-)
+# weibull_model_6 <- deriv(
+#   ~ (alpha_0 + alpha_1 * density_psqkm) *
+#     (1 - exp(-(GDP_PPP_pcap / (scal_base + scal_slope * Gini)) ^ (shape_base + shape_slope * (Gini - gini_ref)))),
+#   namevec = c("alpha_0", "alpha_1", "scal_base", "scal_slope", "shape_base", "shape_slope", "gini_ref"),
+#   function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini",
+#                    "alpha_0", "alpha_1", "scal_base", "scal_slope", "shape_base", "shape_slope", "gini_ref")
+# )
 # 
 # logistic_model_5 <- deriv(
 #   ~ (alpha_0 + alpha_1 * density_psqkm) * (1 / (1 + exp((xmid - GDP_PPP_pcap)/scal)))^(beta_1 * Gini) +
@@ -3210,13 +3218,6 @@ ggsave(
 # FIT WEIBULL MODEL 6
 #################################################################################
 # 
-weibull_model_6 <- deriv(
-  ~ (alpha_0 + alpha_1 * density_psqkm) *
-    (1 - exp(-(GDP_PPP_pcap / (scal_base + scal_slope * Gini)) ^ (shape_base + shape_slope * Gini))),
-  namevec = c("alpha_0", "alpha_1", "scal_base", "scal_slope", "shape_base", "shape_slope"),
-  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini",
-                   "alpha_0", "alpha_1", "scal_base", "scal_slope", "shape_base", "shape_slope")
-)
 
 #####################################################################################
 
