@@ -51,6 +51,14 @@ data <- readRDS("data/all_data_wem_espcap_imputation_wem_urban.rds") %>%
   ) %>%
   ungroup()
 
+# Z-score standardization of Population Density
+data <- data %>%
+  group_by(country_name) %>%
+  mutate(
+    density_psqkm_std = (density_psqkm - mean(density_psqkm, na.rm = TRUE)) / sd(density_psqkm, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
 # Inspect data
 summary(data)
 

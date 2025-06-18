@@ -2,8 +2,9 @@ library(ggplot2)
 library(dplyr)
 library(here)
 library(plotly)
+library(tibble)
 
-create_theme <- function(text_size = 14) {
+create_theme1 <- function(text_size = 14) {
   theme(
     axis.title.y = element_text(size = text_size, family = "ShellMedium, sans"),
     axis.title.x = element_text(size = text_size, family = "ShellMedium, sans"),
@@ -12,10 +13,10 @@ create_theme <- function(text_size = 14) {
     legend.position = c(1.05, 0.9),
     legend.text = element_text(size = text_size - 2, family = "ShellMedium, sans"),
     legend.title = element_blank(),
-    legend.background = element_rect(fill = "transparent", color = NA),
-    legend.key = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "white", color = NA),
+    legend.key = element_rect(fill = "white", color = NA),
     plot.background = element_rect(fill = "white", color = NA),
-    panel.background = element_rect(fill = "transparent", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
     plot.title = element_text(size = text_size, family = "ShellMedium, sans", hjust = 0.5),
@@ -28,6 +29,137 @@ create_theme <- function(text_size = 14) {
     plot.margin = margin(t = 10, r = 10, b = 10, l = 10)
   )
 }
+
+################################################################### 
+# Load Shell brand color palette
+library(readxl)
+library(dplyr)
+
+# Step 1: Read the hex codes from Excel (assuming header is in E10)
+hex_codes <- read_excel(
+  path = here::here("data", "Shell Scenarios v14.6 2023_06_23.xlsm"),
+  sheet = "Settings",
+  range = "E11:E50",  # Skip the header row
+  col_names = "Hex"
+)
+
+# Step 2: Expand to 100 rows by sampling with replacement
+set.seed(123)  # For reproducibility
+n_needed <- 100 - nrow(hex_codes)
+
+expanded_palette <- bind_rows(
+  hex_codes,
+  hex_codes %>% slice_sample(n = n_needed, replace = TRUE)
+)
+
+# Step 3: Confirm it's exactly 100 rows
+expanded_palette <- expanded_palette %>% slice_head(n = 100)
+
+####################################
+####################################
+
+weibull_params <- readRDS(here::here("results/model_parameters_all_weibull_models.rds")) %>%
+   rownames_to_column(var = "model") 
+ 
+
+# Subset Weibull 3 parameters
+weibull_params_3 <- weibull_params %>%
+  filter(model == "model_chosen_3") %>%
+  select(-model)
+
+#### Weibull 3
+# Define the modified sigmoid function
+sigmoid_modified <- function(x, x2, pop_dens, 
+                             scal, b1, alpha_0, alpha_1, b2) {
+  (alpha_0 + alpha_1 * pop_dens) * (1 - exp(-(x/scal)^(b2 + b1*x2)))
+}
+
+# Constants
+# Get parameters from weibull_params_3
+alpha_0 <- weibull_params_3$alpha_0
+alpha_1 <- weibull_params_3$alpha_1
+scal <- weibull_params_3$scal
+shape <- weibull_params_3$shape
+gamma <- weibull_params_3$gamma
+
+# Population density
+pop_dens <- 270 # Median value
+
+# Generate data
+x_vals <- seq(0, 125000, length.out = 500)
+x2_vals <- seq(0.3, 0.7, by = 0.2)
+
+# weibull_model_3 <- deriv(
+#   ~ (alpha_0 + alpha_1 * density_psqkm) * (1 - exp(-(GDP_PPP_pcap/(scal))^(gamma + shape * Gini))),
+#   namevec = c("alpha_0", "alpha_1", "scal", "shape", "gamma"),
+#   function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "alpha_0", "alpha_1", "scal", "shape", "gamma")
+# )
+
+
+# Create plot data
+plot_data <- do.call(rbind, 
+                     lapply(x2_vals, function(x2_val) {
+                       data.frame(
+                         x = x_vals,
+                         y = sigmoid_modified(x_vals, x2 = x2_val, pop_dens = pop_dens,
+                                              scal = scal, b1 = shape,
+                                              alpha_0 = alpha_0, alpha_1 = alpha_1, b2 = gamma),
+                         x2 = as.factor(round(x2_val, 2))
+                       )
+                     })
+)
+
+
+# Interpolate y-values at 25th percentile of x and 75th percentile of x
+intersections <- plot_data %>%
+  group_by(x2) %>%
+  summarise(
+    x_25 = quantile(x, 0.25, na.rm = TRUE),
+    x_75 = quantile(x, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  left_join(plot_data, by = "x2") %>%
+  group_by(x2) %>%
+  summarise(
+    y_25 = approx(x, y, xout = first(x_25))$y,
+    y_75 = approx(x, y, xout = first(x_75))$y,
+    .groups = "drop"
+  ) %>%
+  tidyr::pivot_longer(cols = starts_with("y_"), names_to = "x_val", values_to = "y") %>%
+  mutate(x_val = ifelse(x_val == "y_25", "25th percentile", "75th percentile"))
+
+p1 <- ggplot(plot_data, aes(x = x, y = y, color = x2)) +
+  geom_line() +
+  theme_bw() +
+  scale_color_manual(values =  shell.brand.palette$Hex) +
+  create_theme1(text_size = 16) +
+  labs(
+    title = expression(paste("Effect of Gini on Energy Service Captured by Weibull Curve")),
+    x = "GDP per Capita",
+    y = "Energy Service",
+    color = "Gini"
+  ) +
+  #geom_vline(xintercept = c(10, 12.5), linetype = "dashed", color = "grey") +
+  #geom_hline(data = intersections, aes(yintercept = y, color = x2), linetype = "dotted", show.legend = FALSE) +
+  theme(legend.position = "right") +
+  guides(color = guide_legend(override.aes = list(linetype = "solid")))  +
+  annotate(
+    "text",
+    x = Inf, y = Inf,  # Top-right corner
+    label = "italic(y == (alpha[0] + alpha[1]*pop_dens[it]) * (1 + exp(-((GDPpcap[it]/ scal)^(gamma + shape * Gini[it]) ))))",
+    hjust = 1.1, vjust = 1.5,
+    parse = TRUE,
+    size = 4
+  )
+
+
+# Save to high resolution dpi
+ggsave(here::here("plots/Sigmoid_Gini_weibull3.png"), plot = p1, width = 15, height = 10, dpi = 300)
+
+
+
+
+###############################################################################################################################################
 
 # Define the modified sigmoid function
 sigmoid_modified <- function(x, x2, pop_dens, 
@@ -337,6 +469,8 @@ htmlwidgets::saveWidget(fig, here::here("plots/energy_service_3d_plot_weibull2.h
 
 ####################################
 ####################################
+
+weibull_params <- readRDS(here::here("results/model_parameters_all_weibull_models.rds"))
 
 #### Weibull 3
 # Define the modified sigmoid function
