@@ -1141,6 +1141,8 @@ aggregated.data <- rbind(selected1, selected2) %>%
 historical_data <- aggregated.data %>% filter(line_type == "Historical")
 predicted_data  <- aggregated.data %>% filter(line_type == "Predicted")
 
+logistic_1_predicted <- predicted_data
+
 ################################################################################
 # CREATE PLOT: GDP vs. ES_pcap (Historical vs. Predicted)
 ################################################################################
@@ -2203,6 +2205,8 @@ aggregated.data <- rbind(selected1, selected2) %>%
 historical_data <- aggregated.data %>% filter(line_type == "Historical")
 predicted_data  <- aggregated.data %>% filter(line_type == "Predicted")
 
+logistic_3_predicted <- predicted_data
+
 ################################################################################
 # CREATE PLOT: GDP vs. ES_pcap (Historical vs. Predicted)
 ################################################################################
@@ -3185,6 +3189,8 @@ aggregated.data <- rbind(selected1, selected2) %>%
 historical_data <- aggregated.data %>% filter(line_type == "Historical")
 predicted_data  <- aggregated.data %>% filter(line_type == "Predicted")
 
+logistic_5_predicted <- predicted_data
+
 ################################################################################
 # CREATE PLOT: GDP vs. ES_pcap (Historical vs. Predicted)
 ################################################################################
@@ -3251,6 +3257,117 @@ ggplotly(p1 + theme(legend.position = "right"), tooltip = "text") %>%
 # Save static PNG version
 ggsave(
   filename = here::here("plots/predicted_ES_pcap_logistic_5_fe.png"),
+  plot = p1,
+  width = 16, height = 16, dpi = 150
+)
+
+################################################################################
+# CREATE PLOT: GDP vs. ES_pcap (Historical vs. Predicted)
+################################################################################
+logistic_1_predicted$line_type <- "Predicted: Logistic 1 (wo Gini)"
+logistic_3_predicted$line_type <- "Predicted: Logistic 3 (Gini exponent)"
+logistic_5_predicted$line_type <- "Predicted: Logistic 5 (Gini complex)"
+
+
+p1 <- ggplot() +
+  # Historical lines
+  geom_path(
+    data = historical_data,
+    aes(
+      x = GDP_PPP_pcap,
+      y = ES_pcap,
+      color = country_name,
+      group = country_name,
+      text = paste(
+        "Country:", country_name,
+        "<br>Year:", year,
+        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+        "<br>ES per capita:", scales::comma(ES_pcap),
+        "<br>Line Type:", line_type
+      )
+    ),
+    linetype = "solid"
+  ) +
+  # Predicted lines
+  geom_path(
+    data = logistic_3_predicted,
+    aes(
+      x = GDP_PPP_pcap,
+      y = ES_pcap,
+      color = country_name,
+      group = country_name,
+      text = paste(
+        "Country:", country_name,
+        "<br>Year:", year,
+        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+        "<br>ES per capita:", scales::comma(ES_pcap),
+        "<br>Line Type:", line_type
+      )
+    ),
+    linetype = "dashed"
+  ) +
+  geom_path(
+    data = logistic_5_predicted,
+    aes(
+      x = GDP_PPP_pcap,
+      y = ES_pcap,
+      color = country_name,
+      group = country_name,
+      text = paste(
+        "Country:", country_name,
+        "<br>Year:", year,
+        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+        "<br>ES per capita:", scales::comma(ES_pcap),
+        "<br>Line Type:", line_type
+      )
+    ),
+    linetype = "twodash"
+  ) +
+  geom_path(
+    data = logistic_1_predicted,
+    aes(
+      x = GDP_PPP_pcap,
+      y = ES_pcap,
+      color = country_name,
+      group = country_name,
+      text = paste(
+        "Country:", country_name,
+        "<br>Year:", year,
+        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+        "<br>ES per capita:", scales::comma(ES_pcap),
+        "<br>Line Type:", line_type
+      )
+    ),
+    linetype = "dotted"
+  ) +
+  scale_color_manual(values = country_colors) +
+  labs(
+    title = "Predicted Energy Service per Capita using Logistic Model",
+    x = "GDP per capita (USD)",
+    y = "Energy Service per Capita (passenger km / capita)",
+    color = "Country",
+    linetype = "Data Type"
+  ) +
+  theme_minimal() +
+  create_theme1(16) +
+  scale_x_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k")) +
+  scale_y_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k"))
+
+################################################################################
+# EXPORT INTERACTIVE AND STATIC VERSIONS OF THE PLOT
+################################################################################
+
+# Save interactive HTML version
+ggplotly(p1 + theme(legend.position = "right"), tooltip = "text") %>%
+  htmlwidgets::saveWidget(
+    here::here("plots/predicted_ES_pcap_logistic_best_fe.html"),
+    selfcontained = TRUE
+  )
+
+p1 <- p1 + create_theme1(24)
+# Save static PNG version
+ggsave(
+  filename = here::here("plots/predicted_ES_pcap_logistic_best_fe.png"),
   plot = p1,
   width = 16, height = 16, dpi = 150
 )

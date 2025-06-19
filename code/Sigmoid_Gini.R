@@ -68,7 +68,127 @@ shell.brand.palette <- readRDS(here::here("data", "shell_brand_palette_extended.
   select(country_id, Hex) %>%
   distinct()
 
+
 ################################################################################
+
+# Load and preprocess main dataset
+data <- readRDS("data/all_data_wem_espcap_imputation_wem_urban.rds") %>%
+  group_by(country_id) %>%
+  arrange(country_id, year) %>%
+  mutate(
+    lag_ES_pcap = lag(ES_pcap, order_by = year),
+    # Diving Gini by 100 to ensure stability of estimates    
+    Gini_00 = Gini / 100,
+    Gini_01 = gini_case1 / 100,
+    Gini_02 = gini_case2 / 100,
+    Gini_03 = gini_case3 / 100,
+    GDP_PPP_pcap_thousands = GDP_PPP_pcap / 1000
+  ) %>%
+  ungroup() %>%
+  filter(year <= 2023)
+
+# Merge palette with main dataset
+data <- merge(shell.brand.palette, data, by = "country_id")
+
+
+country_colors <- data %>%
+  select(country_name, Hex) %>%
+  distinct() 
+
+country_colors <- setNames(country_colors$Hex, country_colors$country_name)
+
+
+p1 <- ggplot() +
+  # Historical lines
+  geom_path(
+    data = data,
+    aes(
+      x = GDP_PPP_pcap,
+      y = Gini_01,
+      color = country_name,
+      group = country_name,
+      text = paste(
+        "Country:", country_name,
+        "<br>Year:", year,
+        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+        "<br>Gini per capita:", scales::comma(ES_pcap)
+      )
+    ),
+    linetype = "solid"
+  ) +#+
+  # # Predicted lines
+  # geom_path(
+  #   data = weibull_6_predicted,
+  #   aes(
+  #     x = GDP_PPP_pcap,
+  #     y = ES_pcap,
+  #     color = country_name,
+  #     group = country_name,
+  #     text = paste(
+  #       "Country:", country_name,
+  #       "<br>Year:", year,
+  #       "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+  #       "<br>ES per capita:", scales::comma(ES_pcap),
+  #       "<br>Line Type:", line_type
+  #     )
+  #   ),
+  #   linetype = "dashed"
+  # ) +
+  # geom_path(
+  #   data = weibull_3_predicted,
+  #   aes(
+  #     x = GDP_PPP_pcap,
+  #     y = ES_pcap,
+  #     color = country_name,
+  #     group = country_name,
+  #     text = paste(
+  #       "Country:", country_name,
+  #       "<br>Year:", year,
+  #       "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+  #       "<br>ES per capita:", scales::comma(ES_pcap),
+  #       "<br>Line Type:", line_type
+  #     )
+  #   ),
+  #   linetype = "twodash"
+  # ) +
+  # geom_path(
+  #   data = weibull_5_predicted,
+  #   aes(
+  #     x = GDP_PPP_pcap,
+  #     y = ES_pcap,
+  #     color = country_name,
+  #     group = country_name,
+  #     text = paste(
+  #       "Country:", country_name,
+  #       "<br>Year:", year,
+  #       "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+  #       "<br>ES per capita:", scales::comma(ES_pcap),
+  #       "<br>Line Type:", line_type
+  #     )
+  #   ),
+  #   linetype = "dotted"
+  # ) 
+
+  scale_color_manual(values = country_colors) +
+  labs(
+    title = "Gini as a function of GDP per capita",
+    x = "GDP per capita (USD)",
+    y = "Gini Coefficient",
+    color = "Country",
+    linetype = "Data Type"
+  ) +
+  theme_minimal() +
+  create_theme1(16) +
+  scale_x_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k")) #+
+  #scale_y_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k"))
+
+ggplotly(p1 + theme(legend.position = "right"), tooltip = "text") %>%
+  htmlwidgets::saveWidget(
+    here::here("plots/ES_pcap_Gini.html"),
+    selfcontained = TRUE
+  )
+
+###################################################################################################
 
 weibull_params <- readRDS(here::here("results/model_parameters_all_weibull_models.rds")) %>%
   rownames_to_column(var = "model") 

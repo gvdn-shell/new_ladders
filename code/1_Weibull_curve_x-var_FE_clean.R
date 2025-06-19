@@ -2119,6 +2119,8 @@ aggregated.data <- rbind(selected1, selected2) %>%
 historical_data <- aggregated.data %>% filter(line_type == "Historical")
 predicted_data  <- aggregated.data %>% filter(line_type == "Predicted")
 
+weibull_3_predicted <- predicted_data
+
 ################################################################################
 # CREATE PLOT: GDP vs. ES_pcap (Historical vs. Predicted)
 ################################################################################
@@ -3144,6 +3146,8 @@ aggregated.data <- rbind(selected1, selected2) %>%
 historical_data <- aggregated.data %>% filter(line_type == "Historical")
 predicted_data  <- aggregated.data %>% filter(line_type == "Predicted")
 
+weibull_5_predicted <- predicted_data
+
 ################################################################################
 # CREATE PLOT: GDP vs. ES_pcap (Historical vs. Predicted)
 ################################################################################
@@ -3681,6 +3685,8 @@ aggregated.data <- rbind(selected1, selected2) %>%
 historical_data <- aggregated.data %>% filter(line_type == "Historical")
 predicted_data  <- aggregated.data %>% filter(line_type == "Predicted")
 
+weibull_6_predicted <- predicted_data
+
 ################################################################################
 # CREATE PLOT: GDP vs. ES_pcap (Historical vs. Predicted)
 ################################################################################
@@ -3752,6 +3758,182 @@ ggsave(
 )
 
 # 
+
+###################################################################################
+### COMPARISON OF PREDICTIONS ACROSS SELECTED MODELS
+
+################################################################################
+# CREATE PLOT: GDP vs. ES_pcap (Historical vs. Predicted)
+################################################################################
+weibull_6_predicted$line_type <- "Predicted: Weibull 6 (Gini complex)"
+weibull_3_predicted$line_type <- "Predicted: Weibull 3 (Gini exponent)"
+weibull_5_predicted$line_type <- "Predicted: Weibull 5 (wo Gini)"
+
+
+p1 <- ggplot() +
+  # Historical lines
+  geom_path(
+    data = historical_data,
+    aes(
+      x = GDP_PPP_pcap,
+      y = ES_pcap,
+      color = country_name,
+      group = country_name,
+      text = paste(
+        "Country:", country_name,
+        "<br>Year:", year,
+        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+        "<br>ES per capita:", scales::comma(ES_pcap),
+        "<br>Line Type:", line_type
+      )
+    ),
+    linetype = "solid"
+  ) +
+  # Predicted lines
+  geom_path(
+    data = weibull_6_predicted,
+    aes(
+      x = GDP_PPP_pcap,
+      y = ES_pcap,
+      color = country_name,
+      group = country_name,
+      text = paste(
+        "Country:", country_name,
+        "<br>Year:", year,
+        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+        "<br>ES per capita:", scales::comma(ES_pcap),
+        "<br>Line Type:", line_type
+      )
+    ),
+    linetype = "dashed"
+  ) +
+  geom_path(
+    data = weibull_3_predicted,
+    aes(
+      x = GDP_PPP_pcap,
+      y = ES_pcap,
+      color = country_name,
+      group = country_name,
+      text = paste(
+        "Country:", country_name,
+        "<br>Year:", year,
+        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+        "<br>ES per capita:", scales::comma(ES_pcap),
+        "<br>Line Type:", line_type
+      )
+    ),
+    linetype = "twodash"
+  ) +
+  geom_path(
+    data = weibull_5_predicted,
+    aes(
+      x = GDP_PPP_pcap,
+      y = ES_pcap,
+      color = country_name,
+      group = country_name,
+      text = paste(
+        "Country:", country_name,
+        "<br>Year:", year,
+        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+        "<br>ES per capita:", scales::comma(ES_pcap),
+        "<br>Line Type:", line_type
+      )
+    ),
+    linetype = "dotted"
+  ) +
+  scale_color_manual(values = country_colors) +
+  labs(
+    title = "Predicted Energy Service per Capita using Weibull Model",
+    x = "GDP per capita (USD)",
+    y = "Energy Service per Capita (passenger km / capita)",
+    color = "Country",
+    linetype = "Data Type"
+  ) +
+  theme_minimal() +
+  create_theme1(16) +
+  scale_x_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k")) +
+  scale_y_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k"))
+
+################################################################################
+# EXPORT INTERACTIVE AND STATIC VERSIONS OF THE PLOT
+################################################################################
+
+# Save interactive HTML version
+ggplotly(p1 + theme(legend.position = "right"), tooltip = "text") %>%
+  htmlwidgets::saveWidget(
+    here::here("plots/predicted_ES_pcap_weibull_best_fe.html"),
+    selfcontained = TRUE
+  )
+
+p1 <- p1 + create_theme1(24)
+# Save static PNG version
+ggsave(
+  filename = here::here("plots/predicted_ES_pcap_weibull_best_fe.png"),
+  plot = p1,
+  width = 16, height = 16, dpi = 150
+)
+
+#####################################################################################
+###### NB TO CHECK!!!
+
+best_start_vals <- as.list(coef(nls2_fit_3))
+
+# Check if model generalizes well across subsets of data
+set.seed(1234)
+k <- 10
+folds <- sample(rep(1:k, length.out = nrow(data1)))
+
+cv_results <- data.frame(fold = integer(), RMSE = numeric())
+
+for (i in 1:k) {
+  train_data <- data1[folds != i, ]
+  test_data  <- data1[folds == i, ]
+  
+  try({
+    fit <- nlsLM(
+      ES_pcap ~ weibull_model_3(GDP_PPP_pcap, density_psqkm, Gini_01, alpha_0, alpha_1, scal, shape, gamma),
+      data = train_data,
+      start = best_start_vals,
+      control = nls.lm.control(maxiter = 500, ftol = 1e-8)
+    )
+    
+    preds <- predict(fit, newdata = test_data)
+    rmse <- sqrt(mean((test_data$ES_pcap - preds)^2))
+    
+    cv_results <- rbind(cv_results, data.frame(fold = i, RMSE = rmse))
+  }, silent = TRUE)
+}
+
+print(cv_results)
+cat("Mean RMSE across folds:", mean(cv_results$RMSE), "\n")
+# 
+
+### Bootstrapping to check parameter stability
+set.seed(1234)
+n_boot <- 1000
+param_estimates <- data.frame()
+
+for (i in 1:n_boot) {
+  boot_data <- data1[sample(1:nrow(data1), replace = TRUE), ]
+  
+  try({
+    fit <- nlsLM(
+      ES_pcap ~ weibull_model_3(GDP_PPP_pcap, density_psqkm, Gini_01, alpha_0, alpha_1, scal, shape, gamma),
+      data = boot_data,
+      start = best_start_vals,
+      control = nls.lm.control(maxiter = 500, ftol = 1e-8)
+    )
+    
+    coefs <- coef(fit)
+    param_estimates <- rbind(param_estimates, as.data.frame(t(coefs)))
+  }, silent = TRUE)
+}
+
+# Summary statistics
+summary_stats <- apply(param_estimates, 2, function(x) c(mean = mean(x), sd = sd(x), 
+                                                         lower = quantile(x, 0.025), 
+                                                         upper = quantile(x, 0.975)))
+print(summary_stats)
 
 
 #################################################################################
