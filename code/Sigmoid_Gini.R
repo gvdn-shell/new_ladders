@@ -33,12 +33,12 @@ showtext_auto()  # Automatically use showtext for new devices
 ################################################################################
 create_theme1 <- function(text_size = 14) {
   theme(
-    axis.title.y = element_text(size = text_size, family = "ShellMedium, sans"),
-    axis.title.x = element_text(size = text_size, family = "ShellMedium, sans"),
-    axis.text.y = element_text(size = text_size - 2, family = "ShellMedium, sans"),
-    axis.text.x = element_text(size = text_size - 2, family = "ShellMedium, sans", angle = 45, hjust = 1),
+    axis.title.y = element_text(size = text_size, family = "ShellMedium"),
+    axis.title.x = element_text(size = text_size, family = "ShellMedium"),
+    axis.text.y = element_text(size = text_size - 2, family = "ShellMedium"),
+    axis.text.x = element_text(size = text_size - 2, family = "ShellMedium", angle = 45, hjust = 1),
     legend.position = c(1.05, 0.9),
-    legend.text = element_text(size = text_size - 2, family = "ShellMedium, sans"),
+    legend.text = element_text(size = text_size - 2, family = "ShellMedium"),
     legend.title = element_blank(),
     legend.background = element_rect(fill = "white", color = NA),
     legend.key = element_rect(fill = "white", color = NA),
@@ -46,8 +46,8 @@ create_theme1 <- function(text_size = 14) {
     panel.background = element_rect(fill = "white", color = NA),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
-    plot.title = element_text(size = text_size, family = "ShellMedium, sans", hjust = 0.5),
-    plot.subtitle = element_text(hjust = 0.5, size = text_size - 4, family = "ShellMedium, sans"),
+    plot.title = element_text(size = text_size, family = "ShellMedium", hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5, size = text_size - 4, family = "ShellMedium"),
     plot.caption = element_blank(),
     axis.line = element_line(color = "black"),
     axis.ticks = element_line(color = "black"),
@@ -70,8 +70,10 @@ shell.brand.palette <- readRDS(here::here("data", "shell_brand_palette_extended.
 
 
 ################################################################################
-
 # Load and preprocess main dataset
+excluded.countries <- c("Saudi Arabia", "United Arab Emirates", "Singapore", "Kuwait",
+                        "Qatar", "Libya", "Oman", "Luxembourg", "Rest Of East Asia", "Rest Of North America",
+                        "Rest Of Oceania")
 data <- readRDS("data/all_data_wem_espcap_imputation_wem_urban.rds") %>%
   group_by(country_id) %>%
   arrange(country_id, year) %>%
@@ -85,108 +87,128 @@ data <- readRDS("data/all_data_wem_espcap_imputation_wem_urban.rds") %>%
     GDP_PPP_pcap_thousands = GDP_PPP_pcap / 1000
   ) %>%
   ungroup() %>%
-  filter(year <= 2023)
+  filter(year <= 2023, country_id != 82, !country_name %in% excluded.countries) 
+
+summary(data)
+
+# Create buckets for Gini coefficient and buckets for GDP per capita
+data1 <- data %>%
+  mutate(
+    Gini_bucket = case_when(
+      Gini_01 < 0.3 ~ "(0,0.3)",
+      Gini_01 >= 0.3 & Gini_01 < 0.4 ~ "[0.3,0.4)",
+      Gini_01 >= 0.4 & Gini_01 < 0.5 ~ "[0.4,0.5)",
+      Gini_01 >= 0.5 & Gini_01 < 0.6 ~ "[0.5,0.6)",
+      Gini_01 >= 0.6 ~ "[0.6,1]",
+      TRUE ~ NA_character_
+    ),
+    GDP_PPP_pcap_bucket = case_when(
+      GDP_PPP_pcap < 5000 ~ "(0,5000]",
+      GDP_PPP_pcap >= 5000 & GDP_PPP_pcap < 10000 ~ "[5000,10000)",
+      GDP_PPP_pcap >= 10000 & GDP_PPP_pcap < 15000 ~ "[10000,15000)",
+      GDP_PPP_pcap >= 15000 & GDP_PPP_pcap < 20000 ~ "[15000,20000)",
+      GDP_PPP_pcap >= 20000 & GDP_PPP_pcap < 25000 ~ "[20000,25000)",
+      GDP_PPP_pcap >= 25000 & GDP_PPP_pcap < 30000 ~ "[25000,30000)",
+      GDP_PPP_pcap >= 30000 & GDP_PPP_pcap < 35000 ~ "[30000,35000)",
+      GDP_PPP_pcap >= 35000 & GDP_PPP_pcap < 40000 ~ "[35000,40000)",
+      GDP_PPP_pcap >= 40000 & GDP_PPP_pcap < 45000 ~ "[40000,45000)",
+      GDP_PPP_pcap >= 45000 & GDP_PPP_pcap < 50000 ~ "[45000,50000)",
+      GDP_PPP_pcap >= 50000 & GDP_PPP_pcap < 55000 ~ "[50000,55000)",
+      GDP_PPP_pcap >= 55000 & GDP_PPP_pcap < 60000 ~ "[55000,60000)",
+      GDP_PPP_pcap >= 60000 & GDP_PPP_pcap < 65000 ~ "[60000,65000)",
+      GDP_PPP_pcap >= 65000 ~ "[65000,Inf)",
+      TRUE ~ NA_character_
+    ))
+
+data1
+summary(data1)
+
+data2 <- data1 %>%
+  summarize(
+    ES_pcap = median(ES_pcap, na.rm = TRUE),#,
+    #GDP_PPP_pcap = mean(GDP_PPP_pcap, na.rm = TRUE),
+    #Gini_01 = mean(Gini_01, na.rm = TRUE),
+    #Gini_02 = mean(Gini_02, na.rm = TRUE),
+    #Gini_03 = mean(Gini_03, na.rm = TRUE),
+    #GDP_PPP_pcap = mean(GDP_PPP_pcap, na.rm = TRUE),
+    .by = c("Gini_bucket","GDP_PPP_pcap_bucket")
+  )
+data2
+summary(data2)
+# Summarize data by calculating the average ES_pcap
 
 # Merge palette with main dataset
 data <- merge(shell.brand.palette, data, by = "country_id")
-
-
+# Create a named vector for country colors
 country_colors <- data %>%
   select(country_name, Hex) %>%
   distinct() 
 
-country_colors <- setNames(country_colors$Hex, country_colors$country_name)
+#country_colors <- setNames(country_colors$Hex, country_colors$country_name)
 
+###########################################################################################################
+# PLOT: Gini vs GDP per capita
+###########################################################################################################
+# Create a plot of Energy Service vs GDP per capita by Gini bucket
+
+# Order GDP per capita buckets
+data1$GDP_PPP_pcap_bucket <- factor(
+  data1$GDP_PPP_pcap_bucket,
+  levels = c(
+    "(0,5000]", "[5000,10000)", "[10000,15000)", "[15000,20000)",
+    "[20000,25000)", "[25000,30000)", "[30000,35000)", "[35000,40000)",
+    "[40000,45000)", "[45000,50000)", "[50000,55000)", "[55000,60000)",
+    "[60000,65000)", "[65000,Inf)"
+  ),
+  ordered = TRUE
+)
+                         
+# Order Gini buckets
+data1$Gini_bucket <- factor(data1$Gini_bucket, 
+                             levels = c("(0,0.3)", "[0.3,0.4)", "[0.4,0.5)", "[0.5,0.6)", "[0.6,1]"))
+
+##### Plot the median ES_pcap per Gini bucket vs GDP_ppcap
 
 p1 <- ggplot() +
-  # Historical lines
-  geom_path(
-    data = data,
+  geom_smooth(
+    data = data1,
     aes(
       x = GDP_PPP_pcap,
-      y = Gini_01,
-      color = country_name,
-      group = country_name,
+      y = ES_pcap,
+      color = Gini_bucket,
+      group = Gini_bucket,
       text = paste(
-        "Country:", country_name,
-        "<br>Year:", year,
-        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
-        "<br>Gini per capita:", scales::comma(ES_pcap)
+        # "Country:", country_name,
+        # "Year:", year,
+        # "GDP per capita:", scales::comma(GDP_PPP_pcap_thousands, accuracy = 0.01),
+        "<br>Energy Service per capita:", scales::comma(ES_pcap, accuracy = 0.01)
       )
     ),
-    linetype = "solid"
-  ) +#+
-  # # Predicted lines
-  # geom_path(
-  #   data = weibull_6_predicted,
-  #   aes(
-  #     x = GDP_PPP_pcap,
-  #     y = ES_pcap,
-  #     color = country_name,
-  #     group = country_name,
-  #     text = paste(
-  #       "Country:", country_name,
-  #       "<br>Year:", year,
-  #       "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
-  #       "<br>ES per capita:", scales::comma(ES_pcap),
-  #       "<br>Line Type:", line_type
-  #     )
-  #   ),
-  #   linetype = "dashed"
-  # ) +
-  # geom_path(
-  #   data = weibull_3_predicted,
-  #   aes(
-  #     x = GDP_PPP_pcap,
-  #     y = ES_pcap,
-  #     color = country_name,
-  #     group = country_name,
-  #     text = paste(
-  #       "Country:", country_name,
-  #       "<br>Year:", year,
-  #       "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
-  #       "<br>ES per capita:", scales::comma(ES_pcap),
-  #       "<br>Line Type:", line_type
-  #     )
-  #   ),
-  #   linetype = "twodash"
-  # ) +
-  # geom_path(
-  #   data = weibull_5_predicted,
-  #   aes(
-  #     x = GDP_PPP_pcap,
-  #     y = ES_pcap,
-  #     color = country_name,
-  #     group = country_name,
-  #     text = paste(
-  #       "Country:", country_name,
-  #       "<br>Year:", year,
-  #       "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
-  #       "<br>ES per capita:", scales::comma(ES_pcap),
-  #       "<br>Line Type:", line_type
-  #     )
-  #   ),
-  #   linetype = "dotted"
-  # ) 
-
-  scale_color_manual(values = country_colors) +
+    se = FALSE,
+    size = 2
+  ) +
+  scale_color_manual(values = country_colors$Hex) +
   labs(
-    title = "Gini as a function of GDP per capita",
-    x = "GDP per capita (USD)",
-    y = "Gini Coefficient",
-    color = "Country",
-    linetype = "Data Type"
+    title = "Relationship Between GDP per Capita and Energy Service per Capita\nGrouped by Gini Coefficient Buckets Across Countries and Years",
+    subtitle = "Each line represents a Gini bucket, showing smoothed trends across income levels",
+    x = "GDP per Capita (USD 2018)",
+    y = "Energy Service (vehicle kms/ capita/ year)",
+    color = "Gini Bucket"
   ) +
   theme_minimal() +
-  create_theme1(16) +
-  scale_x_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k")) #+
-  #scale_y_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k"))
+  scale_y_continuous(trans = "sqrt") +
+  create_theme1(16)
+
+p1
+
 
 ggplotly(p1 + theme(legend.position = "right"), tooltip = "text") %>%
   htmlwidgets::saveWidget(
-    here::here("plots/ES_pcap_Gini.html"),
+    here::here("plots/ES_pcap_GDP_Gini.html"),
     selfcontained = TRUE
   )
+
+
 
 ###################################################################################################
 
