@@ -104,7 +104,9 @@ shell.brand.palette <- readRDS(here::here("data", "shell_brand_palette_extended.
   distinct()
 
 # Merge palette with main dataset
-data <- merge(shell.brand.palette, data, by = "country_id")
+data <- merge(shell.brand.palette, data, by = "country_id") %>%
+  mutate(usa_dummy = ifelse(country_name == "USA", 1, 0)) # Add USA dummy variable
+
 
 ################################################################################
 # PLOT: Standardized theme for Scenarios
@@ -317,8 +319,8 @@ high_residual_flag <- unique(data1$country_name[data1$high_residual_flag])
 # saveRDS(data1, file = here::here("data", "data1_with_cooks_d.rds"))
 ################################################################################
 
-data1 <- readRDS(here::here("data", "data1_with_cooks_d.rds"))
-# Cook's D threshold > 4/n
+data1 <- readRDS(here::here("data", "data1_with_cooks_d.rds")) %>%
+  mutate(usa_dummy = ifelse(country_name == "USA", 1, 0))
 
 threshold <- 4 / nrow(data1)
 
@@ -387,7 +389,7 @@ excluded.countries <- c("Luxembourg", "United Arab Emirates", "Qatar", "Kuwait",
 
 # remove USA from high_cooksd_countries
 high_residual_flag_countries <- setdiff(high_residual_flag, "USA") # Want to include USA for saturation level
-high_cooksd_flag_countries <- high_cooksd_countries #setdiff(high_cooksd_countries, c("USA","Canada", "Norway", "Switzerland")) #c("USA", "Canada", "Norway", "Switzerland")) # Want to include USA for saturation level
+high_cooksd_flag_countries <- setdiff(high_cooksd_countries, c("USA","Canada", "Norway", "Switzerland")) #c("USA", "Canada", "Norway", "Switzerland")) # Want to include USA for saturation level
 
 # Combine all into a single exclusion list for which countries you wish to exclude from model fitting
 exclude.countries <- c(
@@ -469,35 +471,53 @@ alias(lm(ES_pcap ~ GDP_PPP_pcap + d_bar + u_bar +
 # DEFINE DAGUM MODELS
 ################################################################################
 
+# Dagum without Gini
+# dagum_model_1_0 <- deriv(
+#   ~ (alpha_0 + alpha_1 * density_psqkm) * (1 + (GDP_PPP_pcap / scal)^(-(shape1_0)))^(-shape2),
+#   namevec = c("alpha_0", "alpha_1", "scal", "shape1_0", "shape2"),
+#   function.arg = c("GDP_PPP_pcap", "density_psqkm", "alpha_0", "alpha_1", "scal", "shape1_0", "shape2")
+# )
+
+dagum_model_1_0 <- deriv(
+  ~ (alpha + alpha_0 * usa_dum + alpha_1 * density_psqkm) * (1 + (GDP_PPP_pcap / scal)^(-(shape1_0)))^(-shape2),
+  namevec = c("alpha", "alpha_0", "alpha_1", "scal", "shape1_0", "shape2"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "alpha", "alpha_0", "alpha_1", "scal", "shape1_0", "shape2", "usa_dum")
+)
+
 # Dagum with Gini, variant 2, simple
 dagum_model_1 <- deriv(
-  ~ (alpha_0 + alpha_1 * density_psqkm) * (1 + (GDP_PPP_pcap / scal)^(-(shape1_0 + shape1_1 * Gini)))^(-shape2),
-  namevec = c("alpha_0", "alpha_1", "scal", "shape1_0", "shape1_1", "shape2"),
-  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "alpha_0", "alpha_1", "scal", "shape1_0", "shape1_1", "shape2")
+  ~ (alpha + alpha_0 * usa_dum + alpha_1 * density_psqkm) * (1 + (GDP_PPP_pcap / scal)^(-(shape1_0 + shape1_1 * Gini)))^(-shape2),
+  namevec = c("alpha", "alpha_0", "alpha_1", "scal", "shape1_0", "shape1_1", "shape2"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", 
+                   "alpha", "alpha_0", "alpha_1", "scal", "shape1_0", "shape1_1", "shape2", "usa_dum")
 )
+
+# Dagum with Gini and urbanization in maturity level
 
 dagum_model_2 <- deriv(
-  ~ (alpha_0 + alpha_1 * density_psqkm + alpha_2 * urbanization) * 
+  ~ (alpha + alpha_0 * usa_dum + alpha_1 * density_psqkm + alpha_2 * urbanization) * 
     (1 + (GDP_PPP_pcap / scal)^(-(shape1_0 + shape1_1 * Gini)))^(-shape2),
-  namevec = c("alpha_0", "alpha_1", "alpha_2", "scal", "shape1_0", "shape1_1", "shape2"),
+  namevec = c("alpha", "alpha_0", "alpha_1", "alpha_2", "scal", "shape1_0", "shape1_1", "shape2"),
   function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "urbanization",
-                   "alpha_0", "alpha_1", "alpha_2", "scal", "shape1_0", "shape1_1", "shape2")
+                   "alpha", "alpha_0", "alpha_1", "alpha_2", "scal", "shape1_0", "shape1_1", "shape2", "usa_dum")
 )
 
+# Dagum with Gini and urbanization in maturity level, interaction term
 dagum_model_3 <- deriv(
-  ~ (alpha_0 + alpha_1 * density_psqkm) * 
+  ~ (alpha + alpha_0 * usa_dum + alpha_1 * density_psqkm) * 
     (1 + (GDP_PPP_pcap / scal)^(-(shape1_0 + shape1_1 * Gini + shape1_2 * urbanization)))^(-shape2),
-  namevec = c("alpha_0", "alpha_1", "scal", "shape1_0", "shape1_1", "shape1_2", "shape2"),
+  namevec = c("alpha", "alpha_0", "alpha_1", "scal", "shape1_0", "shape1_1", "shape1_2", "shape2"),
   function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "urbanization",
-                   "alpha_0", "alpha_1", "scal", "shape1_0", "shape1_1", "shape1_2", "shape2")
+                   "alpha", "alpha_0", "alpha_1", "scal", "shape1_0", "shape1_1", "shape1_2", "shape2", "usa_dum")
 )
 
+# Dagum with Gini and urbanization in maturity level, interaction term, variant 2
 dagum_model_4 <- deriv(
   ~ (alpha_0 + alpha_1 * density_psqkm + alpha_2 * urbanization + alpha_3 * density_psqkm * urbanization) * 
     (1 + (GDP_PPP_pcap / scal)^(-(shape1_0 + shape1_1 * Gini)))^(-shape2),
-  namevec = c("alpha_0", "alpha_1", "alpha_2", "alpha_3", "scal", "shape1_0", "shape1_1", "shape2"),
+  namevec = c("alpha", "alpha_0", "alpha_1", "alpha_2", "alpha_3", "scal", "shape1_0", "shape1_1", "shape2"),
   function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "urbanization",
-                   "alpha_0", "alpha_1", "alpha_2", "alpha_3", "scal", "shape1_0", "shape1_1", "shape2")
+                   "alpha", "alpha_0", "alpha_1", "alpha_2", "alpha_3", "scal", "shape1_0", "shape1_1", "shape2", "usa_dum")
 )
 
 
@@ -556,17 +576,34 @@ ggplotly(
     theme(legend.position = "right")
 )
 
+################################################################################################
+# Model 1_0: Fit the Dagum model without Gini
+################################################################################################
+# First fit NLS to get broad starting values, then refine with nlsLM for robustness
+# nls2_fit <- nls2(
+#   ES_pcap ~ dagum_model_1_0(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, scal, shape1_0, shape2 =1), data = data1,
+#   start = data.frame(
+#     alpha_0 = seq(1000, 50000, length.out = 10),
+#     alpha_1 = seq(-10, 10, length.out = 10),
+#     scal = seq(1000, 70000, length.out = 10),  # avoid 0
+#     shape1_0 = seq(0.1, 10, length.out = 10),      # avoid 0 and large values
+#     #shape1_1 = seq(.1, 10, length.out = 10),      # avoid 0 and large values
+#     shape2 = seq(0.1, 10, length.out = 10)       # avoid 0 and large values
+#   ),
+#   na.action = na.exclude,
+#   ,
+#   algorithm = "brute-force"
+# )
 
-# Use nls2() to explore a wide range of starting values, then refine the best fit 
-# with nlsLM() for robust and bounded optimization.
 nls2_fit <- nls2(
-  ES_pcap ~ dagum_model_1(GDP_PPP_pcap, density_psqkm, Gini_01, alpha_0, alpha_1, scal, shape1_0, shape1_1, shape2 =1), data = data1,
+  ES_pcap ~ dagum_model_1_0(GDP_PPP_pcap, density_psqkm, alpha, alpha_0, alpha_1, scal, shape1_0, shape2 =1, usa_dummy), data = data1,
   start = data.frame(
-    alpha_0 = seq(1000, 50000, length.out = 10),
+    alpha = seq(1000, 50000, length.out = 10),
+    alpha_0 = seq(0, 50000, length.out = 10),
     alpha_1 = seq(-10, 10, length.out = 10),
     scal = seq(1000, 70000, length.out = 10),  # avoid 0
     shape1_0 = seq(0.1, 10, length.out = 10),      # avoid 0 and large values
-    shape1_1 = seq(.1, 10, length.out = 10),      # avoid 0 and large values
+    #shape1_1 = seq(.1, 10, length.out = 10),      # avoid 0 and large values
     shape2 = seq(0.1, 10, length.out = 10)       # avoid 0 and large values
   ),
   na.action = na.exclude,
@@ -576,26 +613,12 @@ nls2_fit <- nls2(
 
 summary(nls2_fit)
 
-# fit2a <- nls(
-#   ES_pcap ~ logistic_model_1(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal),
-#   data = data1,
-#   #fixed = a0 + a1 + xmid + scal + b0 + b1 ~ 1,
-#   #random = pdDiag(~ 1 | country_name),
-#   #random =  xmid ~ 1 | country_name,
-#   start = c(alpha_0 = 23000, alpha_1 = -55, xmid = 33000, scal = 32000),
-#   na.action = na.exclude, #na.exclude to retain original number of rows
-#   control = nlmeControl(pnlsTol = 0.5, maxIter = 200, minFactor = 1e-10, msMaxIter = 200, warnOnly = TRUE)
-# )
-
-# Extract starting values from nlsLM fit
-# start_vals <- list(fixed = coef(nls2_fit))
-
 best_start_vals <- as.list(coef(nls2_fit))
 
+# Fit the model using nlsLM with starting values from nls2 for robustness
 
-# Fit the model using nlsLM with starting values from nls2 
 nlsLM_fit <- nlsLM(
-  ES_pcap ~ dagum_model_1(GDP_PPP_pcap, density_psqkm, Gini_01, alpha_0, alpha_1, scal, shape1_0, shape1_1, shape2 = 1),
+  ES_pcap ~ dagum_model_1_0(GDP_PPP_pcap, density_psqkm, alpha, alpha_0, alpha_1, scal, shape1_0, shape2 = 1, usa_dummy),
   data = data1,
   start = best_start_vals,
   control = nls.lm.control(maxiter = 500, ftol = 1e-8),
@@ -622,7 +645,7 @@ for (i in 1:k) {
   
   try({
     fit <- nlsLM(
-      ES_pcap ~ dagum_model_1(GDP_PPP_pcap, density_psqkm, Gini_01, alpha_0, alpha_1, scal, shape1_0, shape1_1, shape2),
+      ES_pcap ~ dagum_model_1_0(GDP_PPP_pcap, density_psqkm, alpha, alpha_0, alpha_1, scal, shape1_0, shape2, usa_dummy),
       data = train_data,
       start = best_start_vals,
       control = nls.lm.control(maxiter = 500, ftol = 1e-8)
@@ -638,7 +661,497 @@ for (i in 1:k) {
 print(cv_results)
 cat("Mean RMSE across folds:", mean(cv_results$RMSE), "\n")
 
-hist(cv_results$RMSE, breaks = 20, main = "Distribution of RMSE across folds", xlab = "RMSE")
+hist(cv_results$RMSE, breaks = 5, main = "Distribution of RMSE across folds", xlab = "RMSE")
+
+################################################################################
+# CHECKING FOR NEGATIVE MATURITY TERMS
+################################################################################
+
+model_chosen_1 <- nlsLM_fit
+
+# Extract estimated coefficients from the fitted model
+coefs <- coef(model_chosen_1)
+
+# Compute the maturity term for each observation
+maturity_term <- with(data1, coefs["alpha_0"] + coefs["alpha_1"] * density_psqkm)
+
+# Check if any maturity terms are negative
+any_negative <- any(maturity_term < 0)
+num_negative <- sum(maturity_term < 0)
+which_negative <- which(maturity_term < 0)
+
+# Output results
+cat("Any negative maturity terms? ", any_negative, "\n")
+cat("Number of negative values: ", num_negative, "\n")
+
+################################################################################
+# MODEL DIAGNOSTICS: PREPARE DATA
+################################################################################
+
+# Prepare for in sample model diagnostics
+model_data <- 
+  data1[complete.cases(data1[, c(
+    "ES_pcap", "GDP_PPP_pcap", "density_psqkm", "Gini_01"
+  )]), ]
+
+# Add model predictions and residuals
+model_data$predicted <- predict(model_chosen_1, level = 0) # Level =1 if random effects
+model_data$residuals <- model_data$ES_pcap - model_data$predicted
+
+################################################################################
+# MODEL DIAGNOSTICS: PLOTS
+################################################################################
+
+# 1. Actual vs. Predicted Plot
+plot(
+  model_data$ES_pcap, model_data$predicted,
+  xlab = "Actual ES_pcap", ylab = "Predicted ES_pcap",
+  main = "Actual vs. Predicted ES_pcap",
+  pch = 19, col = rgb(0, 0, 1, 0.5)
+)
+abline(a = 0, b = 1, col = "red", lty = 2)
+
+# 2. Residuals vs. Fitted Values
+plot(
+  model_data$predicted, model_data$residuals,
+  xlab = "Predicted ES_pcap", ylab = "Residuals",
+  main = "Residuals vs. Fitted Values",
+  pch = 19, col = rgb(0, 0, 1, 0.5)
+)
+abline(h = 0, col = "red", lty = 2)
+
+# Plot residuals versus fitted values using ggplot2 and colour by country_name
+ggplotly(ggplot(model_data, aes(x = predicted, y = residuals, color = country_name)) +
+           geom_point() +
+           geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+           labs(
+             title = "Residuals vs Fitted Values",
+             x = "Fitted ES_pcap",
+             y = "Residuals"
+           ) +
+           theme_minimal() +
+           theme(legend.position = "none"))
+
+# Plot qq plots of residuals facetted by country_name
+p1 <- ggplotly(ggplot(model_data, aes(sample = residuals)) +
+                 geom_qq() +
+                 geom_qq_line() +
+                 facet_wrap(~ country_name, scales = "free") +
+                 labs(
+                   title = "Q-Q Plot of Residuals by Country",
+                   x = "Theoretical Quantiles",
+                   y = "Sample Quantiles"
+                 ) +
+                 theme_minimal() +
+                 theme(legend.position = "none"))
+
+# Save p1 to interactive html
+#htmlwidgets::saveWidget(p1, here::here("plots/dagum_1_0_qq_plot_residuals_by_country.html"))
+
+# Plot influential values
+ggplotly(ggplot(model_data, aes(x = predicted, y = residuals, color = country_name)) +
+           geom_point() +
+           geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+           labs(
+             title = "Residuals vs Fitted Values",
+             x = "Fitted ES_pcap",
+             y = "Residuals"
+           ) +
+           theme_minimal() +
+           theme(legend.position = "none"))
+
+# 3. Histogram of Residuals
+hist(
+  model_data$residuals,
+  breaks = 30,
+  main = "Histogram of Residuals",
+  xlab = "Residuals",
+  col = "lightblue", border = "white"
+)
+# 4. Density Plot of Residuals
+ggplotly(ggplot(model_data, aes(x = residuals)) +
+           geom_density(fill = "lightblue", alpha = 0.5) +
+           labs(
+             title = "Density Plot of Residuals",
+             x = "Residuals",
+             y = "Density"
+           ) +
+           theme_minimal() +
+           theme(legend.position = "none"))
+
+
+################################################################################
+# MODEL SELECTION AND PREDICTION
+################################################################################
+
+# Assign the chosen model to a generic variable for clarity
+fit <- model_chosen_1#fit_weibull_4
+
+# Prepare dataset for prediction including out of sample: 
+# remove rows with missing values in key variables included in equation
+data1_model <- full.dataset[complete.cases(full.dataset[, c(
+  "ES_pcap", "GDP_PPP_pcap_thousands", "density_psqkm", "Gini_01"
+)]), ]
+
+# Generate predictions using the fitted model
+data1_model$predicted_ES_pcap <- predict(fit, newdata = data1_model, level = 0)
+
+# Calculate residuals
+data1_model$residuals <- data1_model$ES_pcap - data1_model$predicted_ES_pcap
+
+################################################################################
+# DIAGNOSTIC PLOTS
+################################################################################
+
+# 1. Actual vs. Predicted ES_pcap
+ggplotly(ggplot(data1_model, aes(x = ES_pcap, y = predicted_ES_pcap, color = country_name)) +
+           geom_point(alpha = 0.5) +
+           geom_abline(slope = 1, intercept = 0, color = "red") +
+           labs(
+             title = "Actual vs Predicted ES_pcap",
+             x = "Actual ES_pcap",
+             y = "Predicted ES_pcap"
+           ) +
+           theme_minimal() +
+           theme(legend.position = "none"))
+
+# 1.A Plot standardized residuals vs. fitted values
+# standardize residuals
+
+ggplotly(ggplot(data1_model, aes(x = predicted_ES_pcap, y = residuals, color = country_name)) +
+           geom_point() +
+           geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+           labs(
+             title = "Residuals vs Fitted Values",
+             x = "Fitted ES_pcap",
+             y = "Residuals"
+           ) +
+           theme_minimal() +
+           theme(legend.position = "none"))
+
+# 2. Residuals by Year and Country
+ggplot(data1_model, aes(x = year, y = residuals, color = country_name)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~ country_name, scales = "free") +
+  labs(
+    title = "Residuals by Year and Country",
+    x = "Year",
+    y = "Residuals"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+################################################################################
+# MODEL COEFFICIENTS: FIXED EFFECTS SUMMARY
+################################################################################
+
+
+################################################################################
+# PREDICTED VS ACTUAL OVER TIME BY COUNTRY
+################################################################################
+
+ggplot(data1_model, aes(x = year, y = ES_pcap)) +
+  geom_point() +
+  geom_line() +
+  geom_point(aes(y = predicted_ES_pcap), color = "red") +
+  geom_line(aes(y = predicted_ES_pcap), color = "red") +
+  facet_wrap(~ country_name, scales = "free") +
+  labs(
+    title = "Predicted vs Actual Energy Service per Capita",
+    x = "Year",
+    y = "Energy Service per Capita"
+  ) +
+  theme_minimal()
+
+################################################################################
+# FORECASTING FUTURE ENERGY SERVICE PER CAPITA (ES_pcap)
+# Using iterative prediction from 2024 to 2100 with lagged values
+################################################################################
+
+# Step 1: Filter future data (optional filter by country or year)
+future_data <- data %>%
+  filter(year >= (last.historical.year + 1))
+
+# Step 2: Prepare dataset for forecasting
+# Set lag_ES_pcap to NA for years >= 2024 to simulate unknown future values
+predictions_data <- data %>%
+  mutate(lag_ES_pcap = ifelse(year >= 2024, NA, lag_ES_pcap))
+
+# Step 3: Initialize variables
+predictions <- list()  # To store predictions if needed
+data.orig <- data.frame(predictions_data)  # Working copy of the dataset
+model <- model_chosen_1 #fit_weibull_4  # Fitted nlsLM model
+
+################################################################################
+# ITERATIVE FORECAST LOOP: YEAR-BY-YEAR PREDICTION
+################################################################################
+# Extract known country_ids from the fitted model
+known_ids <- unique(model$groups$country_id)
+
+# Get base year value of ES_pcap per country_id for calculation of offset
+base_year_values <- data.orig %>%
+  filter(year == last.historical.year) %>%
+  select(country_id, ES_pcap)
+
+first.prediction.year <- last.historical.year + 1
+
+for (i in first.prediction.year:2100) {
+  
+  # Step 1: Update lag_ES_pcap for the current year
+  data.orig <- data.orig %>%
+    group_by(country_id) %>%
+    arrange(year) %>%
+    mutate(lag_ES_pcap = if_else(year == i, lag(ES_pcap), lag_ES_pcap)) %>%
+    ungroup()
+  
+  # Step 2: Filter data for the current forecast year
+  data.used <- filter(data.orig, year == i)
+  
+  # Step 3: Split into known and new countries
+  data.known <- data.used %>% filter(country_id %in% known_ids)
+  data.new   <- data.used %>% filter(!country_id %in% known_ids)
+  
+  # Step 4: Predict using appropriate level
+  pred.known <- if (nrow(data.known) > 0) {
+    predict(model, newdata = data.known, level = 0)
+  } else {
+    numeric(0)
+  }
+  
+  pred.new <- if (nrow(data.new) > 0) {
+    predict(model, newdata = data.new, level = 0)
+  } else {
+    numeric(0)
+  }
+  
+  # Step 5: Combine predictions
+  prediction_df <- bind_rows(
+    data.frame(country_id = data.known$country_id, year = data.known$year, predicted_ES_pcap = pred.known),
+    data.frame(country_id = data.new$country_id, year = data.new$year, predicted_ES_pcap = pred.new)
+  )
+  
+  # Step 6: Update ES_pcap in the original dataset
+  data.orig <- data.orig %>%
+    left_join(prediction_df, by = c("country_id", "year")) %>%
+    group_by(country_id) %>%
+    arrange(country_id, year) %>%
+    mutate(
+      ES_pcap = if_else(!is.na(predicted_ES_pcap), predicted_ES_pcap, ES_pcap),
+      lag_ES_pcap = if_else(year == i, lag(ES_pcap), lag_ES_pcap)
+    ) %>%
+    select(-predicted_ES_pcap)
+}
+
+################################################################################
+# FINALIZE FORECASTED DATASET
+################################################################################
+
+# Arrange the final dataset by country and year
+predictions_data <- data.orig %>%
+  arrange(country_id, year)
+
+# Calculate offset value by letting model predict 2023 values (base year) and calculate difference with actual
+base_year_values <- predict(model, newdata = data.orig %>% filter(year == last.historical.year), level = 0) %>%
+  data.frame(country_id = data.orig$country_id[data.orig$year == last.historical.year], ES_pcap = .)
+
+# Calculate offset value given difference between base_year value and model prediction
+offset_values <- base_year_values %>%
+  left_join(predictions_data %>% filter(year == last.historical.year) %>% select(country_id, ES_pcap), by = "country_id") %>%
+  mutate(offset = ES_pcap.y - ES_pcap.x) %>%
+  select(country_id, offset)
+
+# Add offset value to predictions_data for year >= 2024
+predictions_data <- predictions_data %>%
+  left_join(offset_values, by = "country_id") %>%
+  mutate(
+    ES_pcap = if_else(year > last.historical.year, ES_pcap + offset, ES_pcap),
+    lag_ES_pcap = if_else(year > last.historical.year, lag(ES_pcap), lag_ES_pcap)
+  ) %>%
+  select(-offset)
+
+################################################################################
+# PREPARE FUTURE DATA FOR VISUALIZATION
+################################################################################
+
+# Step 1: Extract future data (from 2024 onward) and assign predicted ES_pcap
+future_data <- predictions_data %>%
+  filter(year > last.historical.year) %>%
+  mutate(predicted_ES_pcap = ES_pcap)
+
+################################################################################
+# COMBINE HISTORICAL AND PREDICTED DATA FOR VISUALIZATION
+################################################################################
+
+# Step 3: Select relevant columns from historical and future datasets
+selected1 <- data.orig %>%
+  filter(year <= last.historical.year) %>%
+  ungroup() %>%
+  select(country_name, GDP_PPP_pcap, ES_pcap, year, Hex)
+
+selected2 <- future_data %>%
+  ungroup() %>%
+  select(country_name, GDP_PPP_pcap, ES_pcap, year, Hex)
+
+# Step 4: Combine and label data
+aggregated.data <- rbind(selected1, selected2) %>%
+  arrange(country_name, year) %>%
+  mutate(line_type = if_else(year <= last.historical.year, "Historical", "Predicted"))
+
+# Step 5: Split into historical and predicted subsets
+historical_data <- aggregated.data %>% filter(line_type == "Historical")
+predicted_data  <- aggregated.data %>% filter(line_type == "Predicted")
+
+dagum_1_0_predicted <- predicted_data
+
+################################################################################
+# CREATE PLOT: GDP vs. ES_pcap (Historical vs. Predicted)
+################################################################################
+
+p1 <- ggplot() +
+  # Historical lines
+  geom_path(
+    data = historical_data,
+    aes(
+      x = GDP_PPP_pcap,
+      y = ES_pcap,
+      color = country_name,
+      group = country_name,
+      text = paste(
+        "Country:", country_name,
+        "<br>Year:", year,
+        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+        "<br>ES per capita:", scales::comma(ES_pcap)
+      )
+    ),
+    linetype = "solid"
+  ) +
+  # Predicted lines
+  geom_path(
+    data = predicted_data,
+    aes(
+      x = GDP_PPP_pcap,
+      y = ES_pcap,
+      color = country_name,
+      group = country_name,
+      text = paste(
+        "Country:", country_name,
+        "<br>Year:", year,
+        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+        "<br>ES per capita:", scales::comma(ES_pcap)
+      )
+    ),
+    linetype = "dashed"
+  ) +
+  scale_color_manual(values = country_colors) +
+  labs(
+    title = "Predicted Energy Service per Capita using Dagum 1 Model without Gini",
+    x = "GDP per capita (USD)",
+    y = "Energy Service per Capita (passenger km / capita)",
+    color = "Country",
+    linetype = "Data Type"
+  ) +
+  theme_minimal() +
+  create_theme1(16) +
+  scale_x_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k")) +
+  scale_y_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k"))
+
+model_chosen_1_0 <- model_chosen_1 # Save as model_chosen_1_0 for clarity to be used later
+
+################################################################################
+# EXPORT INTERACTIVE AND STATIC VERSIONS OF THE PLOT
+################################################################################
+
+# Save interactive HTML version
+ggplotly(p1 + theme(legend.position = "right"), tooltip = "text") %>%
+  htmlwidgets::saveWidget(
+    here::here("plots/predicted_ES_pcap_dagum_1_0_fe.html"),
+    selfcontained = TRUE
+  )
+
+# Save static PNG version
+ggsave(
+  filename = here::here("plots/predicted_ES_pcap_dagum_1_0_fe.png"),
+  plot = p1,
+  width = 16, height = 16, dpi = 150
+)
+
+################################################################################################
+# Model 1: Fit the Dagum model with Gini, variant 2, simple
+################################################################################################
+
+# Use nls2() to explore a wide range of starting values, then refine the best fit 
+# with nlsLM() for robust and bounded optimization.
+nls2_fit <- nls2(
+  ES_pcap ~ dagum_model_1(GDP_PPP_pcap, density_psqkm, Gini_01, alpha, alpha_0, alpha_1, scal, shape1_0, shape1_1, shape2 =1, usa_dummy), data = data1,
+  start = data.frame(
+    alpha = seq(1000, 50000, length.out = 10),
+    alpha_0 = seq(0, 50000, length.out = 10),
+    alpha_1 = seq(-10, 10, length.out = 10),
+    scal = seq(1000, 70000, length.out = 10),  # avoid 0
+    shape1_0 = seq(0.1, 10, length.out = 10),      # avoid 0 and large values
+    shape1_1 = seq(.1, 10, length.out = 10),      # avoid 0 and large values
+    shape2 = seq(0.1, 10, length.out = 10)       # avoid 0 and large values
+  ),
+  na.action = na.exclude,
+  ,
+  algorithm = "brute-force"
+)
+
+summary(nls2_fit)
+
+# Extract best starting values from nls2 fit
+best_start_vals <- as.list(coef(nls2_fit))
+
+# Fit the model using nlsLM with starting values from nls2 
+nlsLM_fit <- nlsLM(
+  ES_pcap ~ dagum_model_1(GDP_PPP_pcap, density_psqkm, Gini_01, alpha, alpha_0, alpha_1, scal, shape1_0, shape1_1, shape2 = 1, usa_dummy),
+  data = data1,
+  start = best_start_vals,
+  control = nls.lm.control(maxiter = 500, ftol = 1e-8),
+  na.action = na.exclude
+)
+
+dagum1_nlslm_start <- as.list(coef(nlsLM_fit))
+
+
+summary(nlsLM_fit)
+
+# Residual analysis
+plot(residuals(nls2_fit))
+plot(residuals(nlsLM_fit))
+# Appears that nlsM_fit is better
+
+# Check if model generalizes well across subsets of data
+set.seed(1234)
+k <- 5
+folds <- sample(rep(1:k, length.out = nrow(data1)))
+
+cv_results <- data.frame(fold = integer(), RMSE = numeric())
+
+for (i in 1:k) {
+  train_data <- data1[folds != i, ] # Train model on first fold
+  test_data  <- data1[folds == i, ]
+  
+  try({
+    fit <- nlsLM(
+      ES_pcap ~ dagum_model_1(GDP_PPP_pcap, density_psqkm, Gini_01, alpha, alpha_0, alpha_1, scal, shape1_0, shape1_1, shape2, usa_dummy),
+      data = train_data,
+      start = best_start_vals,
+      control = nls.lm.control(maxiter = 500, ftol = 1e-8)
+    )
+    
+    preds <- predict(fit, newdata = test_data)
+    rmse <- sqrt(mean((test_data$ES_pcap - preds)^2))
+    
+    cv_results <- rbind(cv_results, data.frame(fold = i, RMSE = rmse))
+  }, silent = TRUE)
+}
+
+print(cv_results)
+cat("Mean RMSE across folds:", mean(cv_results$RMSE), "\n")
+
+hist(cv_results$RMSE, breaks = 5, main = "Distribution of RMSE across folds", xlab = "RMSE")
 
 # Fit stats of best fitting model
 fit_stats1 <- data.frame(
@@ -647,12 +1160,6 @@ fit_stats1 <- data.frame(
   BIC = BIC(nlsLM_fit)#,
   #R_squared = summary(fit_weibull_4)$r.squared
 )
-
-# combine all fit stats into a table
-# Create a kable table for model fit statistics
-# kable(fit_stats1, digits = 3, caption = "Model Fit Statistics: Logistic 1 Model wo Gini") %>%
-#   kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
-#   save_kable(here::here("results/model_fit_statistics_logistic_1.html"))
 
 ################################################################################
 # CHECKING FOR NEGATIVE MATURITY TERMS
@@ -751,7 +1258,7 @@ p1 <- ggplotly(ggplot(model_data, aes(sample = residuals)) +
   theme(legend.position = "none"))
 
 # Save p1 to interactive html
-htmlwidgets::saveWidget(p1, here::here("plots/dagum_qq_plot_residuals_by_country.html"))
+htmlwidgets::saveWidget(p1, here::here("plots/dagum_1_qq_plot_residuals_by_country.html"))
 
 # Plot influential values
 ggplotly(ggplot(model_data, aes(x = predicted, y = residuals, color = country_name)) +
@@ -920,41 +1427,6 @@ model <- model_chosen_1 #fit_weibull_4  # Fitted nlsLM model
 ################################################################################
 # ITERATIVE FORECAST LOOP: YEAR-BY-YEAR PREDICTION
 ################################################################################
-
-# for (i in 2024:2100) {
-#   
-#   # Step 3.1: Update lag_ES_pcap for the current year
-#   data.orig <- data.orig %>%
-#     group_by(country_id) %>%
-#     arrange(year) %>%
-#     mutate(lag_ES_pcap = if_else(year == i, lag(ES_pcap), lag_ES_pcap)) %>%
-#     ungroup()
-#   
-#   # Step 3.2: Filter data for the current forecast year
-#   data.used <- filter(data.orig, year == i)
-#   
-#   # Step 3.3: Predict ES_pcap using the model
-#   predictions <- predict(model, newdata = data.used, level = 1)
-#   
-#   # Step 3.4: Create a dataframe of predictions
-#   prediction_df <- data.frame(
-#     country_id = data.used$country_id,
-#     year = data.used$year,
-#     predicted_ES_pcap = predictions
-#   )
-#   
-#   # Step 3.5: Update ES_pcap in the original dataset with predicted values
-#   data.orig <- data.orig %>%
-#     left_join(prediction_df, by = c("country_id", "year")) %>%
-#     group_by(country_id) %>%
-#     arrange(country_id, year) %>%
-#     mutate(
-#       ES_pcap = if_else(!is.na(predicted_ES_pcap), predicted_ES_pcap, ES_pcap),
-#       lag_ES_pcap = if_else(year == i, lag(ES_pcap), lag_ES_pcap)
-#     ) %>%
-#     select(-predicted_ES_pcap)  # Clean up temporary column
-# }
-
 # Extract known country_ids from the fitted model
 known_ids <- unique(model$groups$country_id)
 
@@ -981,7 +1453,7 @@ for (i in 2024:2100) {
   
   # Step 4: Predict using appropriate level
   pred.known <- if (nrow(data.known) > 0) {
-    predict(model, newdata = data.known, level = 1)
+    predict(model, newdata = data.known, level = 0)
   } else {
     numeric(0)
   }
@@ -1036,6 +1508,8 @@ predictions_data <- predictions_data %>%
     lag_ES_pcap = if_else(year > last.historical.year, lag(ES_pcap), lag_ES_pcap)
   ) %>%
   select(-offset)
+
+dagum_1_predicted <- predicted_data
 
 ################################################################################
 # PREPARE FUTURE DATA FOR VISUALIZATION
@@ -1170,29 +1644,609 @@ ggsave(
 # library(openxlsx)
 
 
-model_params <- list(
-  model_chosen_1 = coef(model_chosen_1)
-  #model_chosen_2 = coef(model_chosen_2),
-  # model_chosen_3 = coef(model_chosen_3),
-  # model_chosen_4 = coef(model_chosen_4),
-  # model_chosen_5 = coef(model_chosen_5),
-  # model_chosen_6 = coef(model_chosen_6)
+
+
+################################################################################################
+# Model 2: Fit the Dagum model with Gini and urbanization
+################################################################################################
+# This is giving insignificant values - possible high multicollineary
+# Check collinearity between Gini and urbanization_perc
+
+
+dagum_model_2 <- deriv(
+  ~ (alpha + alpha_0 * usa_dum + alpha_1 * density_psqkm ) * 
+    (1 + (GDP_PPP_pcap / scal)^(-(shape1_0 + shape1_1 * Gini + alpha_2 * urbanization)))^(-shape2),
+  namevec = c("alpha", "alpha_0", "alpha_1", "alpha_2", "scal", "shape1_0", "shape1_1", "shape2"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "urbanization",
+                   "alpha", "alpha_0", "alpha_1", "alpha_2", "scal", "shape1_0","shape1_1", "shape2", "usa_dum")
+)
+
+dagum1_nlslm_start
+
+(best_start_vals <- dagum1_nlslm_start)
+
+# Add alpha_2 start to dagum1_nlslm_start list
+best_start_vals$alpha_2 <- 0 # Set to 0 for no urbanization effect
+#best_start_vals$shape1_0 <- NULL
+# Remove alpha_3 from list
+#dagum1_nlslm_start$alpha_3 <- NULL # Remove if not used in the model
+#dagum1_nlslm_start$alpha_3 <- -1
+
+# Use nls2() to explore a wide range of starting values, then refine the best fit 
+# with nlsLM() for robust and bounded optimization.
+# nls2_fit <- nls2(
+#   ES_pcap ~ dagum_model_2(GDP_PPP_pcap, density_psqkm, Gini, urbanization_perc,
+#                           alpha, alpha_0, alpha_1, alpha_2, scal, shape1_0, shape1_1, shape2 =1, usa_dummy), data = data1,
+#   start = data.frame(
+#     alpha_0 = seq(1000, 30000, length.out = 5),
+#     alpha_1 = seq(-5, 5, length.out = 5),
+#     alpha_2 = seq(-50, 50, length.out = 5),
+#     scal = seq(5000, 60000, length.out = 5),
+#     shape1_0 = seq(0.5, 5, length.out = 5),
+#     shape1_1 = seq(0.1, 5, length.out = 5),
+#     shape2 = seq(0.5, 5, length.out = 5)
+#   )
+#   ,
+#   na.action = na.exclude,
+#   ,
+#   algorithm = "brute-force"
+# )
+# 
+# summary(nls2_fit)
+
+# fit2a <- nls(
+#   ES_pcap ~ logistic_model_1(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal),
+#   data = data1,
+#   #fixed = a0 + a1 + xmid + scal + b0 + b1 ~ 1,
+#   #random = pdDiag(~ 1 | country_name),
+#   #random =  xmid ~ 1 | country_name,
+#   start = c(alpha_0 = 23000, alpha_1 = -55, xmid = 33000, scal = 32000),
+#   na.action = na.exclude, #na.exclude to retain original number of rows
+#   control = nlmeControl(pnlsTol = 0.5, maxIter = 200, minFactor = 1e-10, msMaxIter = 200, warnOnly = TRUE)
+# )
+
+# Extract starting values from nlsLM fit
+# start_vals <- list(fixed = coef(nls2_fit))
+
+
+# Fit the model using nlsLM with starting values from nls2 
+nlsLM_fit <- nlsLM(
+  ES_pcap ~ dagum_model_2(GDP_PPP_pcap, density_psqkm, Gini, urbanization_perc,
+                          alpha, alpha_0, alpha_1, alpha_2, scal, shape1_0, shape1_1, shape2, usa_dummy),
+  data = data1,
+  start = best_start_vals,
+  control = nls.lm.control(maxiter = 1024, ftol = 1e-8),
+  na.action = na.exclude
+)
+
+summary(nlsLM_fit)
+
+# Residual analysis
+plot(residuals(nls2_fit))
+plot(residuals(nlsLM_fit))
+# Appears that nlsM_fit is better
+
+# Check if model generalizes well across subsets of data
+set.seed(1234)
+k <- 5
+folds <- sample(rep(1:k, length.out = nrow(data1)))
+
+cv_results <- data.frame(fold = integer(), RMSE = numeric())
+
+for (i in 1:k) {
+  train_data <- data1[folds != i, ] # Train model on first fold
+  test_data  <- data1[folds == i, ]
+  
+  try({
+    fit <- nlsLM(
+      ES_pcap ~ dagum_model_1(GDP_PPP_pcap, density_psqkm, Gini_01, alpha_0, alpha_1, scal, shape1_0, shape1_1, shape2),
+      data = train_data,
+      start = best_start_vals,
+      control = nls.lm.control(maxiter = 500, ftol = 1e-8)
+    )
+    
+    preds <- predict(fit, newdata = test_data)
+    rmse <- sqrt(mean((test_data$ES_pcap - preds)^2))
+    
+    cv_results <- rbind(cv_results, data.frame(fold = i, RMSE = rmse))
+  }, silent = TRUE)
+}
+
+print(cv_results)
+cat("Mean RMSE across folds:", mean(cv_results$RMSE), "\n")
+
+hist(cv_results$RMSE, breaks = 5, main = "Distribution of RMSE across folds", xlab = "RMSE")
+
+# Fit stats of best fitting model
+fit_stats1 <- data.frame(
+  Model = "Dagum 1: With Gini Simple Variant 2",
+  AIC = AIC(nlsLM_fit),
+  BIC = BIC(nlsLM_fit)#,
+  #R_squared = summary(fit_weibull_4)$r.squared
+)
+
+################################################################################
+# CHECKING FOR NEGATIVE MATURITY TERMS
+################################################################################
+
+model_chosen_1 <- nlsLM_fit
+
+# Extract estimated coefficients from the fitted model
+coefs <- coef(model_chosen_1)
+
+# Compute the maturity term for each observation
+maturity_term <- with(data1, coefs["alpha_0"] + coefs["alpha_1"] * density_psqkm)
+
+# Check if any maturity terms are negative
+any_negative <- any(maturity_term < 0)
+num_negative <- sum(maturity_term < 0)
+which_negative <- which(maturity_term < 0)
+
+# Output results
+cat("Any negative maturity terms? ", any_negative, "\n")
+cat("Number of negative values: ", num_negative, "\n")
+
+################################################################################
+# COPY MODEL PARAMETERS TO CLIPBOARD 
+################################################################################
+
+# # Extract parameters from the fitted model and copy to clipboard
+# parameters <- coef(model_chosen_1)
+# write.table(parameters, file = "clipboard", sep = "\t", row.names = TRUE, col.names = TRUE)
+
+################################################################################
+# MODEL DIAGNOSTICS: PREPARE DATA
+################################################################################
+
+# Create a clean dataset used in the model (omit rows with missing values)
+# model_data <- na.omit(data1[, c(
+#   "ES_pcap", "GDP_PPP_pcap_thousands", "d_bar", "u_bar",
+#   "rising_income", "falling_income", "lag_ES_pcap"
+# )])
+
+# Prepare for in sample model diagnostics
+model_data <- 
+  data1[complete.cases(data1[, c(
+    "ES_pcap", "GDP_PPP_pcap", "density_psqkm", "Gini_01"
+  )]), ]
+
+# Add model predictions and residuals
+model_data$predicted <- predict(model_chosen_1, level = 0) # Level =1 if random effects
+model_data$residuals <- model_data$ES_pcap - model_data$predicted
+
+################################################################################
+# MODEL DIAGNOSTICS: PLOTS
+################################################################################
+
+# 1. Actual vs. Predicted Plot
+plot(
+  model_data$ES_pcap, model_data$predicted,
+  xlab = "Actual ES_pcap", ylab = "Predicted ES_pcap",
+  main = "Actual vs. Predicted ES_pcap",
+  pch = 19, col = rgb(0, 0, 1, 0.5)
+)
+abline(a = 0, b = 1, col = "red", lty = 2)
+
+# 2. Residuals vs. Fitted Values
+plot(
+  model_data$predicted, model_data$residuals,
+  xlab = "Predicted ES_pcap", ylab = "Residuals",
+  main = "Residuals vs. Fitted Values",
+  pch = 19, col = rgb(0, 0, 1, 0.5)
+)
+abline(h = 0, col = "red", lty = 2)
+
+# Plot residuals versus fitted values using ggplot2 and colour by country_name
+ggplotly(ggplot(model_data, aes(x = predicted, y = residuals, color = country_name)) +
+           geom_point() +
+           geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+           labs(
+             title = "Residuals vs Fitted Values",
+             x = "Fitted ES_pcap",
+             y = "Residuals"
+           ) +
+           theme_minimal() +
+           theme(legend.position = "none"))
+
+# Plot qq plots of residuals facetted by country_name
+p1 <- ggplotly(ggplot(model_data, aes(sample = residuals)) +
+                 geom_qq() +
+                 geom_qq_line() +
+                 facet_wrap(~ country_name, scales = "free") +
+                 labs(
+                   title = "Q-Q Plot of Residuals by Country",
+                   x = "Theoretical Quantiles",
+                   y = "Sample Quantiles"
+                 ) +
+                 theme_minimal() +
+                 theme(legend.position = "none"))
+
+# Save p1 to interactive html
+htmlwidgets::saveWidget(p1, here::here("plots/dagum_1_qq_plot_residuals_by_country.html"))
+
+# Plot influential values
+ggplotly(ggplot(model_data, aes(x = predicted, y = residuals, color = country_name)) +
+           geom_point() +
+           geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+           labs(
+             title = "Residuals vs Fitted Values",
+             x = "Fitted ES_pcap",
+             y = "Residuals"
+           ) +
+           theme_minimal() +
+           theme(legend.position = "none"))
+
+# 3. Histogram of Residuals
+hist(
+  model_data$residuals,
+  breaks = 30,
+  main = "Histogram of Residuals",
+  xlab = "Residuals",
+  col = "lightblue", border = "white"
+)
+
+################################################################################
+# MODEL SUMMARY EXPORT: FORMATTED TABLES AND FILE OUTPUT
+################################################################################
+
+################################################################################
+# TIDY MODEL OUTPUT AND DISPLAY AS HTML TABLE
+################################################################################
+
+fit1 <- model_chosen_1 #fit_weibull_4  # Replace with your fitted model if needed
+# Tidy the model output (example shown with `fit1`; replace with your model if needed)
+tidy_fit1 <- broom.mixed::tidy(fit1)
+
+################################################################################
+# MODEL SELECTION AND PREDICTION
+################################################################################
+
+# Assign the chosen model to a generic variable for clarity
+fit <- model_chosen_1#fit_weibull_4
+
+# Prepare dataset for prediction including out of sample: 
+# remove rows with missing values in key variables included in equation
+data1_model <- full.dataset[complete.cases(full.dataset[, c(
+  "ES_pcap", "GDP_PPP_pcap_thousands", "density_psqkm", "Gini_01"
+)]), ]
+
+# Generate predictions using the fitted model
+data1_model$predicted_ES_pcap <- predict(fit, newdata = data1_model, level = 0)
+
+# Calculate residuals
+data1_model$residuals <- data1_model$ES_pcap - data1_model$predicted_ES_pcap
+
+# Optional: Inspect a specific country
+#View(data1_model %>% filter(country_name == "Libya"))
+
+################################################################################
+# DIAGNOSTIC PLOTS
+################################################################################
+
+# 1. Actual vs. Predicted ES_pcap
+ggplotly(ggplot(data1_model, aes(x = ES_pcap, y = predicted_ES_pcap, color = country_name)) +
+           geom_point(alpha = 0.5) +
+           geom_abline(slope = 1, intercept = 0, color = "red") +
+           labs(
+             title = "Actual vs Predicted ES_pcap",
+             x = "Actual ES_pcap",
+             y = "Predicted ES_pcap"
+           ) +
+           theme_minimal() +
+           theme(legend.position = "none"))
+
+# 1.A Plot standardized residuals vs. fitted values
+# standardize residuals
+
+ggplotly(ggplot(data1_model, aes(x = predicted_ES_pcap, y = residuals, color = country_name)) +
+           geom_point() +
+           geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+           labs(
+             title = "Residuals vs Fitted Values",
+             x = "Fitted ES_pcap",
+             y = "Residuals"
+           ) +
+           theme_minimal() +
+           theme(legend.position = "none"))
+
+# 2. Residuals by Year and Country
+ggplot(data1_model, aes(x = year, y = residuals, color = country_name)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~ country_name, scales = "free") +
+  labs(
+    title = "Residuals by Year and Country",
+    x = "Year",
+    y = "Residuals"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+################################################################################
+# MODEL COEFFICIENTS: FIXED EFFECTS SUMMARY
+################################################################################
+
+# Extract fixed effects using broom
+fixed_df <- broom::tidy(fit) %>%
+  mutate(effect_type = "Fixed")
+
+# Optional: Combine with random effects if available
+# random_effects <- ranef(fit)
+# random_df <- random_effects %>%
+#   tibble::rownames_to_column("country_name") %>%
+#   pivot_longer(-country_name, names_to = "term", values_to = "estimate") %>%
+#   mutate(effect_type = "Random")
+# combined_df <- bind_rows(fixed_df, random_df)
+
+# For now, use only fixed effects
+combined_df <- fixed_df
+
+# Optional: Display as a GT table
+# gt(combined_df) %>%
+#   tab_header(title = "Fixed and Random Effects from Nonlinear Mixed-Effects Model") %>%
+#   cols_label(
+#     country_name = "Country",
+#     term = "Parameter",
+#     estimate = "Estimate",
+#     effect_type = "Effect Type"
+#   ) %>%
+#   fmt_number(columns = "estimate", decimals = 3)
+
+################################################################################
+# PREDICTED VS ACTUAL OVER TIME BY COUNTRY
+################################################################################
+
+ggplot(data1_model, aes(x = year, y = ES_pcap)) +
+  geom_point() +
+  geom_line() +
+  geom_point(aes(y = predicted_ES_pcap), color = "red") +
+  geom_line(aes(y = predicted_ES_pcap), color = "red") +
+  facet_wrap(~ country_name, scales = "free") +
+  labs(
+    title = "Predicted vs Actual Energy Service per Capita",
+    x = "Year",
+    y = "Energy Service per Capita"
+  ) +
+  theme_minimal()
+
+################################################################################
+# FORECASTING FUTURE ENERGY SERVICE PER CAPITA (ES_pcap)
+# Using iterative prediction from 2024 to 2100 with lagged values
+################################################################################
+
+# Step 1: Filter future data (optional filter by country or year)
+future_data <- data %>%
+  filter(year >= (last.historical.year + 1))
+
+# Step 2: Prepare dataset for forecasting
+# Set lag_ES_pcap to NA for years >= 2024 to simulate unknown future values
+predictions_data <- data %>%
+  mutate(lag_ES_pcap = ifelse(year >= 2024, NA, lag_ES_pcap))
+
+# Step 3: Initialize variables
+predictions <- list()  # To store predictions if needed
+data.orig <- data.frame(predictions_data)  # Working copy of the dataset
+model <- model_chosen_1 #fit_weibull_4  # Fitted nlsLM model
+
+################################################################################
+# ITERATIVE FORECAST LOOP: YEAR-BY-YEAR PREDICTION
+################################################################################
+# Extract known country_ids from the fitted model
+known_ids <- unique(model$groups$country_id)
+
+# Get base year value of ES_pcap per country_id for calculation of offset
+base_year_values <- data.orig %>%
+  filter(year == last.historical.year) %>%
+  select(country_id, ES_pcap)
+
+for (i in 2024:2100) {
+  
+  # Step 1: Update lag_ES_pcap for the current year
+  data.orig <- data.orig %>%
+    group_by(country_id) %>%
+    arrange(year) %>%
+    mutate(lag_ES_pcap = if_else(year == i, lag(ES_pcap), lag_ES_pcap)) %>%
+    ungroup()
+  
+  # Step 2: Filter data for the current forecast year
+  data.used <- filter(data.orig, year == i)
+  
+  # Step 3: Split into known and new countries
+  data.known <- data.used %>% filter(country_id %in% known_ids)
+  data.new   <- data.used %>% filter(!country_id %in% known_ids)
+  
+  # Step 4: Predict using appropriate level
+  pred.known <- if (nrow(data.known) > 0) {
+    predict(model, newdata = data.known, level = 0)
+  } else {
+    numeric(0)
+  }
+  
+  pred.new <- if (nrow(data.new) > 0) {
+    predict(model, newdata = data.new, level = 0)
+  } else {
+    numeric(0)
+  }
+  
+  # Step 5: Combine predictions
+  prediction_df <- bind_rows(
+    data.frame(country_id = data.known$country_id, year = data.known$year, predicted_ES_pcap = pred.known),
+    data.frame(country_id = data.new$country_id, year = data.new$year, predicted_ES_pcap = pred.new)
+  )
+  
+  # Step 6: Update ES_pcap in the original dataset
+  data.orig <- data.orig %>%
+    left_join(prediction_df, by = c("country_id", "year")) %>%
+    group_by(country_id) %>%
+    arrange(country_id, year) %>%
+    mutate(
+      ES_pcap = if_else(!is.na(predicted_ES_pcap), predicted_ES_pcap, ES_pcap),
+      lag_ES_pcap = if_else(year == i, lag(ES_pcap), lag_ES_pcap)
+    ) %>%
+    select(-predicted_ES_pcap)
+}
+
+################################################################################
+# FINALIZE FORECASTED DATASET
+################################################################################
+
+# Arrange the final dataset by country and year
+predictions_data <- data.orig %>%
+  arrange(country_id, year)
+
+# Calculate offset value by letting model predict 2023 values (base year) and calculate difference with actual
+base_year_values <- predict(model, newdata = data.orig %>% filter(year == last.historical.year), level = 0) %>%
+  data.frame(country_id = data.orig$country_id[data.orig$year == last.historical.year], ES_pcap = .)
+
+# Calculate offset value given difference between base_year value and model prediction
+offset_values <- base_year_values %>%
+  left_join(predictions_data %>% filter(year == last.historical.year) %>% select(country_id, ES_pcap), by = "country_id") %>%
+  mutate(offset = ES_pcap.y - ES_pcap.x) %>%
+  select(country_id, offset)
+
+# Add offset value to predictions_data for year >= 2024
+predictions_data <- predictions_data %>%
+  left_join(offset_values, by = "country_id") %>%
+  mutate(
+    ES_pcap = if_else(year > last.historical.year, ES_pcap + offset, ES_pcap),
+    lag_ES_pcap = if_else(year > last.historical.year, lag(ES_pcap), lag_ES_pcap)
+  ) %>%
+  select(-offset)
+
+dagum_1_predicted <- predicted_data
+
+################################################################################
+# PREPARE FUTURE DATA FOR VISUALIZATION
+################################################################################
+
+# Step 1: Extract future data (from 2024 onward) and assign predicted ES_pcap
+future_data <- predictions_data %>%
+  filter(year > last.historical.year) %>%
+  mutate(predicted_ES_pcap = ES_pcap)
+
+################################################################################
+# COMBINE HISTORICAL AND PREDICTED DATA FOR VISUALIZATION
+################################################################################
+
+# Step 3: Select relevant columns from historical and future datasets
+selected1 <- data.orig %>%
+  filter(year <= last.historical.year) %>%
+  ungroup() %>%
+  select(country_name, GDP_PPP_pcap, ES_pcap, year, Hex)
+
+selected2 <- future_data %>%
+  ungroup() %>%
+  select(country_name, GDP_PPP_pcap, ES_pcap, year, Hex)
+
+# Step 4: Combine and label data
+aggregated.data <- rbind(selected1, selected2) %>%
+  arrange(country_name, year) %>%
+  mutate(line_type = if_else(year <= last.historical.year, "Historical", "Predicted"))
+
+# Step 5: Split into historical and predicted subsets
+historical_data <- aggregated.data %>% filter(line_type == "Historical")
+predicted_data  <- aggregated.data %>% filter(line_type == "Predicted")
+
+################################################################################
+# CREATE PLOT: GDP vs. ES_pcap (Historical vs. Predicted)
+################################################################################
+
+p1 <- ggplot() +
+  # Historical lines
+  geom_path(
+    data = historical_data,
+    aes(
+      x = GDP_PPP_pcap,
+      y = ES_pcap,
+      color = country_name,
+      group = country_name,
+      text = paste(
+        "Country:", country_name,
+        "<br>Year:", year,
+        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+        "<br>ES per capita:", scales::comma(ES_pcap)
+      )
+    ),
+    linetype = "solid"
+  ) +
+  # Predicted lines
+  geom_path(
+    data = predicted_data,
+    aes(
+      x = GDP_PPP_pcap,
+      y = ES_pcap,
+      color = country_name,
+      group = country_name,
+      text = paste(
+        "Country:", country_name,
+        "<br>Year:", year,
+        "<br>GDP per capita:", scales::comma(GDP_PPP_pcap),
+        "<br>ES per capita:", scales::comma(ES_pcap)
+      )
+    ),
+    linetype = "dashed"
+  ) +
+  scale_color_manual(values = country_colors) +
+  labs(
+    title = "Predicted Energy Service per Capita using Dagum 1 Model with Gini",
+    x = "GDP per capita (USD)",
+    y = "Energy Service per Capita (passenger km / capita)",
+    color = "Country",
+    linetype = "Data Type"
+  ) +
+  theme_minimal() +
+  create_theme1(16) +
+  scale_x_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k")) +
+  scale_y_continuous(labels = scales::comma_format(scale = 1e-3, suffix = "k"))
+
+# Add the Logistic equation to your existing plot
+# p1 <- p1 +
+#   annotate(
+#     "text",
+#     x = Inf, y = Inf,  # Position in top-right corner (adjust as needed)
+#     label = "italic((alpha[0] + alpha[1]*density[psqkm]) * 
+#                     (1/(1 + exp(- (GDP[PPP][pcap] - xmid)/ scale))))",
+#     hjust = 1.1, vjust = 1.5,
+#     parse = TRUE,
+#     size = 4
+#   )
+
+# # Add the Weibull equation to your existing plot
+# p1 <- p1 +
+#   annotate(
+#     "text",
+#     x = Inf, y = Inf,  # Position in top-right corner (adjust as needed)
+#     label = "italic((alpha[0] + alpha[1]*density[psqkm] + alpha[2]*lag_ES[pcap]) * 
+#                     k / exp(gamma + lambda*Gini) * 
+#                     (GDP[PPP][pcap] / exp(gamma + lambda*Gini))^(k - 1) * 
+#                     exp(-(GDP[PPP][pcap] / exp(gamma + lambda*Gini))^k))",
+#     hjust = 1.1, vjust = 1.5,
+#     parse = TRUE,
+#     size = 4
+#   )
+# 
+
+################################################################################
+# EXPORT INTERACTIVE AND STATIC VERSIONS OF THE PLOT
+################################################################################
+
+# Save interactive HTML version
+ggplotly(p1 + theme(legend.position = "right"), tooltip = "text") %>%
+  htmlwidgets::saveWidget(
+    here::here("plots/predicted_ES_pcap_dagum_1_fe.html"),
+    selfcontained = TRUE
+  )
+
+# Save static PNG version
+ggsave(
+  filename = here::here("plots/predicted_ES_pcap_dagum_1_fe.png"),
+  plot = p1,
+  width = 16, height = 16, dpi = 150
 )
 
 
-# Step 1: Get all unique parameter names
-all_params <- unique(unlist(lapply(model_params, names)))
 
-# Step 2: Convert each model's coefficients to a full row with all parameters
-model_params_df <- do.call(rbind, lapply(model_params, function(x) {
-  x_full <- setNames(rep(NA, length(all_params)), all_params)
-  x_full[names(x)] <- x
-  as.data.frame(t(x_full))
-}))
-
-# Step 3: Save to .rds
-saveRDS(model_params_df, here::here("results/model_parameters_all_dagum_models.rds"))
-
+#####################################################################################################################################################
 ################################################################################
 # FIT DAGUM 2 MODEL
 ################################################################################
@@ -1586,7 +2640,7 @@ model <- model_chosen_1 #fit_weibull_4  # Fitted nlsLM model
 #   data.used <- filter(data.orig, year == i)
 #   
 #   # Step 3.3: Predict ES_pcap using the model
-#   predictions <- predict(model, newdata = data.used, level = 1)
+#   predictions <- predict(model, newdata = data.used, level = 0)
 #   
 #   # Step 3.4: Create a dataframe of predictions
 #   prediction_df <- data.frame(
@@ -1633,7 +2687,7 @@ for (i in 2024:2100) {
   
   # Step 4: Predict using appropriate level
   pred.known <- if (nrow(data.known) > 0) {
-    predict(model, newdata = data.known, level = 1)
+    predict(model, newdata = data.known, level = 0)
   } else {
     numeric(0)
   }
@@ -1850,9 +2904,10 @@ saveRDS(model_params_df, here::here("results/model_parameters_all_dagum_models.r
 
 
 ################################################################################
-# FIT DAGUM 4 MODEL
+# FIT DAGUM 4 MODEL: WITH INTERACTION TERMS
 ################################################################################
 
+# Include USA dummy here - but possibly makes insignificant
 
 dagum_model_4 <- deriv(
   ~ (alpha_0 + alpha_1 * density_psqkm + alpha_2 * urbanization + alpha_3 * density_psqkm * urbanization) * 
@@ -1865,7 +2920,7 @@ dagum_model_4 <- deriv(
 
 # Use nls2() to explore a wide range of starting values, then refine the best fit 
 # with nlsLM() for robust and bounded optimization.
-# nls2_fit <- nls2(
+nls2_fit <- nls2(
 #   ES_pcap ~ dagum_model_4(GDP_PPP_pcap, density_psqkm, Gini_01, urbanization = urbanization_perc,
 #                           alpha_0, alpha_1, alpha_2, alpha_3, scal, shape1_0, shape1_1, shape2 = 1),
 #   data = data1,
@@ -1885,6 +2940,39 @@ dagum_model_4 <- deriv(
 # 
 # summary(nls2_fit)
 
+dagum_model_4 <- deriv(
+  ~ (alpha * usa_dum + alpha_0  + alpha_1 * density_psqkm + alpha_2 * urbanization + alpha_3 * density_psqkm * urbanization) * 
+    (1 + (GDP_PPP_pcap / scal)^(-(shape1_0 + shape1_1 * Gini)))^(-shape2),
+  namevec = c("alpha", "alpha_0", "alpha_1", "alpha_2", "alpha_3", "scal", "shape1_0", "shape1_1", "shape2"),
+  function.arg = c("GDP_PPP_pcap", "density_psqkm", "Gini", "urbanization",
+                   "alpha", "alpha_0", "alpha_1", "alpha_2", "alpha_3", "scal", "shape1_0", "shape1_1", "shape2", "usa_dum")
+)
+
+
+# Use nls2() to explore a wide range of starting values, then refine the best fit 
+# with nlsLM() for robust and bounded optimization.
+nls2_fit <- nls2(
+  ES_pcap ~ dagum_model_4(GDP_PPP_pcap, density_psqkm, Gini_01, urbanization = urbanization_perc,
+                          alpha, alpha_0, alpha_1, alpha_2, alpha_3, scal, shape1_0, shape1_1, shape2 = 1, usa_dummy),
+  data = data1,
+  start = expand.grid(
+    alpha = seq(0, 1, length.out = 2), # USA dummy coefficient
+    alpha_0 = seq(1000, 50000, length.out = 2),
+    alpha_1 = seq(-10, 10, length.out = 2),
+    alpha_2 = seq(-10, 10, length.out = 2),
+    alpha_3 = seq(-5, 5, length.out = 2),
+    scal = seq(1000, 70000, length.out = 2),
+    shape1_0 = seq(0.1, 10, length.out = 2),
+    shape1_1 = seq(0.1, 10, length.out = 2),
+    shape2 = seq(0.1, 10, length.out = 2)
+  ),
+  na.action = na.exclude,
+  algorithm = "random-search"
+)
+
+summary(nls2_fit)
+
+
 # fit2a <- nls(
 #   ES_pcap ~ logistic_model_1(GDP_PPP_pcap, density_psqkm, alpha_0, alpha_1, xmid, scal),
 #   data = data1,
@@ -1901,14 +2989,14 @@ dagum_model_4 <- deriv(
 
 best_start_vals <- as.list(coef(nls2_fit))
 
-best_start_vals$alpha_2 <- -1 # Set alpha_2 to 0 for the simple variant
-best_start_vals$alpha_3 <- -1
+#best_start_vals$alpha_2 <- -1 # Set alpha_2 to 0 for the simple variant
+#best_start_vals$alpha_3 <- -1
 
 
 # Fit the model using nlsLM with starting values from nls2 
 nlsLM_fit <- nlsLM(
-  ES_pcap ~ dagum_model_4(GDP_PPP_pcap, density_psqkm, Gini_01, urbanization = urbanization_perc,
-                                                     alpha_0, alpha_1, alpha_2, alpha_3, scal, shape1_0, shape1_1, shape2 = 1),
+  ES_pcap ~ dagum_model_4(GDP_PPP_pcap, density_psqkm, Gini_01, urbanization = urbanization_perc/100,
+                                                     alpha, alpha_0, alpha_1, alpha_2, alpha_3, scal, shape1_0, shape1_1, shape2, usa_dummy),
   data = data1,
   start = best_start_vals,
   control = nls.lm.control(maxiter = 500, ftol = 1e-8),
@@ -1916,6 +3004,34 @@ nlsLM_fit <- nlsLM(
 )
 
 summary(nlsLM_fit)
+
+### Up to here
+
+model_chosen_4 <- nlsLM_fit
+
+model_params <- list(
+  model_chosen_1 = coef(model_chosen_4)
+  #model_chosen_2 = coef(model_chosen_2),
+  # model_chosen_3 = coef(model_chosen_3),
+  # model_chosen_4 = coef(model_chosen_4),
+  # model_chosen_5 = coef(model_chosen_5),
+  # model_chosen_6 = coef(model_chosen_6)
+)
+
+
+# Step 1: Get all unique parameter names
+all_params <- unique(unlist(lapply(model_params, names)))
+
+# Step 2: Convert each model's coefficients to a full row with all parameters
+model_params_df <- do.call(rbind, lapply(model_params, function(x) {
+  x_full <- setNames(rep(NA, length(all_params)), all_params)
+  x_full[names(x)] <- x
+  as.data.frame(t(x_full))
+}))
+
+# Step 3: Save to .rds
+saveRDS(model_params_df, here::here("results/model_parameters_all_dagum_models.rds"))
+
 
 # Residual analysis
 plot(residuals(nls2_fit))
@@ -2247,7 +3363,7 @@ model <- model_chosen_1 #fit_weibull_4  # Fitted nlsLM model
 #   data.used <- filter(data.orig, year == i)
 #   
 #   # Step 3.3: Predict ES_pcap using the model
-#   predictions <- predict(model, newdata = data.used, level = 1)
+#   predictions <- predict(model, newdata = data.used, level = 0)
 #   
 #   # Step 3.4: Create a dataframe of predictions
 #   prediction_df <- data.frame(
@@ -2294,7 +3410,7 @@ for (i in 2024:2100) {
   
   # Step 4: Predict using appropriate level
   pred.known <- if (nrow(data.known) > 0) {
-    predict(model, newdata = data.known, level = 1)
+    predict(model, newdata = data.known, level = 0)
   } else {
     numeric(0)
   }
@@ -2423,7 +3539,7 @@ p1 <- ggplot() +
   ) +
   scale_color_manual(values = country_colors) +
   labs(
-    title = "Predicted Energy Service per Capita using Dagum 1 Model with Gini",
+    title = "Predicted Energy Service per Capita using Dagum 2 Model with Urbanization Interaction",
     x = "GDP per capita (USD)",
     y = "Energy Service per Capita (passenger km / capita)",
     color = "Country",
@@ -2468,13 +3584,13 @@ p1 <- ggplot() +
 # Save interactive HTML version
 ggplotly(p1 + theme(legend.position = "right"), tooltip = "text") %>%
   htmlwidgets::saveWidget(
-    here::here("plots/predicted_ES_pcap_dagum_1_fe.html"),
+    here::here("plots/predicted_ES_pcap_dagum_2_fe.html"),
     selfcontained = TRUE
   )
 
 # Save static PNG version
 ggsave(
-  filename = here::here("plots/predicted_ES_pcap_dagum_1_fe.png"),
+  filename = here::here("plots/predicted_ES_pcap_dagum_2_fe.png"),
   plot = p1,
   width = 16, height = 16, dpi = 150
 )
@@ -2789,7 +3905,7 @@ model <- model_chosen_2 #fit_weibull_4  # Fitted nlsLM model
 #   data.used <- filter(data.orig, year == i)
 #   
 #   # Step 3.3: Predict ES_pcap using the model
-#   predictions <- predict(model, newdata = data.used, level = 1)
+#   predictions <- predict(model, newdata = data.used, level = 0)
 #   
 #   # Step 3.4: Create a dataframe of predictions
 #   prediction_df <- data.frame(
@@ -2836,7 +3952,7 @@ for (i in 2024:2100) {
   
   # Step 4: Predict using appropriate level
   pred.known <- if (nrow(data.known) > 0) {
-    predict(model, newdata = data.known, level = 1)
+    predict(model, newdata = data.known, level = 0)
   } else {
     numeric(0)
   }
@@ -2875,7 +3991,7 @@ predictions_data <- data.orig %>%
   arrange(country_id, year)
 
 # Calculate offset value by letting model predict 2023 values (base year) and calculate difference with actual
-base_year_values <- predict(model, newdata = data.orig %>% filter(year == last.historical.year), level = 1) %>%
+base_year_values <- predict(model, newdata = data.orig %>% filter(year == last.historical.year), level = 0) %>%
   data.frame(country_id = data.orig$country_id[data.orig$year == last.historical.year], ES_pcap = .)
 
 # Calculate offset value given difference between base_year value and model prediction
@@ -3337,7 +4453,7 @@ for (i in 2024:2100) {
   
   # Step 4: Predict using appropriate level
   pred.known <- if (nrow(data.known) > 0) {
-    predict(model, newdata = data.known, level = 1)
+    predict(model, newdata = data.known, level = 0)
   } else {
     numeric(0)
   }
@@ -3850,7 +4966,7 @@ for (i in 2024:2100) {
   
   # Step 4: Predict using appropriate level
   pred.known <- if (nrow(data.known) > 0) {
-    predict(model, newdata = data.known, level = 1)
+    predict(model, newdata = data.known, level = 0)
   } else {
     numeric(0)
   }
@@ -4364,7 +5480,7 @@ for (i in 2024:2100) {
   
   # Step 4: Predict using appropriate level
   pred.known <- if (nrow(data.known) > 0) {
-    predict(model, newdata = data.known, level = 1)
+    predict(model, newdata = data.known, level = 0)
   } else {
     numeric(0)
   }
@@ -4903,7 +6019,7 @@ for (i in 2024:2100) {
 
   # Step 4: Predict using appropriate level
   pred.known <- if (nrow(data.known) > 0) {
-    predict(model, newdata = data.known, level = 1)
+    predict(model, newdata = data.known, level = 0)
   } else {
     numeric(0)
   }
@@ -4992,6 +6108,31 @@ historical_data <- aggregated.data %>% filter(line_type == "Historical")
 predicted_data  <- aggregated.data %>% filter(line_type == "Predicted")
 
 weibull_6_predicted <- predicted_data
+
+
+
+model_params <- list(
+  model_chosen_1 = coef(model_chosen_1)
+  #model_chosen_2 = coef(model_chosen_2),
+  # model_chosen_3 = coef(model_chosen_3),
+  # model_chosen_4 = coef(model_chosen_4),
+  # model_chosen_5 = coef(model_chosen_5),
+  # model_chosen_6 = coef(model_chosen_6)
+)
+
+
+# Step 1: Get all unique parameter names
+all_params <- unique(unlist(lapply(model_params, names)))
+
+# Step 2: Convert each model's coefficients to a full row with all parameters
+model_params_df <- do.call(rbind, lapply(model_params, function(x) {
+  x_full <- setNames(rep(NA, length(all_params)), all_params)
+  x_full[names(x)] <- x
+  as.data.frame(t(x_full))
+}))
+
+# Step 3: Save to .rds
+saveRDS(model_params_df, here::here("results/model_parameters_all_dagum_models.rds"))
 
 ################################################################################
 # CREATE PLOT: GDP vs. ES_pcap (Historical vs. Predicted)
