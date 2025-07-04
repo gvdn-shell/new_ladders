@@ -216,8 +216,222 @@ ggplotly(p1 + theme(legend.position = "right"), tooltip = "text") %>%
 weibull_params <- readRDS(here::here("results/model_parameters_all_dagum_models.rds")) %>%
   rownames_to_column(var = "model") 
 
+### Dagum 4:
 
-# Subset Weibull 6 parameters
+# Subset Dagum 4 parameters
+weibull_params_6 <- weibull_params %>%
+  filter(model == "model_chosen_4") %>%
+  select(-model)
+
+
+# Define the modified sigmoid function
+sigmoid_modified <- function(x, x2, pop_dens , urbanization, usa_dum, alpha, alpha_0, alpha_1, alpha_2, alpha_3, scal, 
+                             shape1_0, shape1_1, shape2) {
+  (alpha * usa_dum + alpha_0 + alpha_1 * pop_dens + alpha_2 * urbanization + alpha_3 * pop_dens * urbanization) * 
+    (1 + (x / scal)^(-(shape1_0 + shape1_1 * x2)))^(-shape2)
+}
+
+
+# Constants
+# Get parameters from weibull_params_3
+alpha <- weibull_params_6$alpha
+alpha_0 <- weibull_params_6$alpha_0
+alpha_1 <- weibull_params_6$alpha_1
+alpha_2 <- weibull_params_6$alpha_2
+alpha_3 <- weibull_params_6$alpha_3
+scal <- weibull_params_6$scal
+shape1_0 <- weibull_params_6$shape1_0
+shape1_1 <- weibull_params_6$shape1_1
+shape2 <- weibull_params_6$shape2
+
+# Population density
+pop_dens <- 270 # Median value
+urbanization <- 61.3 / 100 # Median value (61% urbanization) (as in graph)
+usa_dum <- 0
+
+# Generate data
+x_vals <- seq(0, 125000, length.out = 500)
+x2_vals <- seq(0.3, 0.7, by = 0.2)
+
+
+# Create plot data
+plot_data <- do.call(rbind, 
+                     lapply(x2_vals, function(x2_val) {
+                       data.frame(
+                         x = x_vals,
+                         y = sigmoid_modified(x_vals, x2 = x2_val, pop_dens = pop_dens,
+                                              urbanization = urbanization,
+                                              usa_dum = usa_dum,
+                                              scal = scal,
+                                              alpha = alpha,
+                                              alpha_0 = alpha_0,
+                                              alpha_1 = alpha_1,
+                                              alpha_2 = alpha_2,
+                                              alpha_3 = alpha_3,
+                                              shape1_0 = shape1_0,
+                                              shape1_1 = shape1_1,
+                                              shape2 = shape2),
+                         x2 = as.factor(round(x2_val, 2))
+                       )
+                     })
+)
+
+
+# Interpolate y-values at 25th percentile of x and 75th percentile of x
+intersections <- plot_data %>%
+  group_by(x2) %>%
+  summarise(
+    x_25 = quantile(x, 0.25, na.rm = TRUE),
+    x_75 = quantile(x, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  left_join(plot_data, by = "x2") %>%
+  group_by(x2) %>%
+  summarise(
+    y_25 = approx(x, y, xout = first(x_25))$y,
+    y_75 = approx(x, y, xout = first(x_75))$y,
+    .groups = "drop"
+  ) %>%
+  tidyr::pivot_longer(cols = starts_with("y_"), names_to = "x_val", values_to = "y") %>%
+  mutate(x_val = ifelse(x_val == "y_25", "25th percentile", "75th percentile"))
+
+p1 <- ggplot(plot_data, aes(x = x, y = y, color = x2)) +
+  geom_line() +
+  theme_bw() +
+  scale_color_manual(values = shell.brand.palette$Hex, name = "Gini") +
+  create_theme1(text_size = 40) +
+  labs(
+    title = expression(paste("Effect of Gini on Energy Service Captured by Dagum Model 4")),
+    x = "GDP per Capita",
+    y = "Energy Service (vehicle kms/ capita/ year)"
+  ) +
+  theme(legend.position = "right") +
+  guides(color = guide_legend(override.aes = list(linetype = "solid"))) +
+  annotate(
+    "text",
+    x = Inf, y = Inf,
+    label = "italic(y == (alpha + alpha[0] * USA[dum] + alpha[1]*pop_dens[it] + alpha[2]*urban_perc[it] + alpha[3] * pop_dens[it] * urban_perc[it]) *\"\n\"*
+                (1 + (GDPpcap[it] / scal) ^ (-(shape[0] + shape[1] * Gini[it]))) ^ (-shape[2]))",
+    hjust = 1.1, vjust = 8.5,
+    parse = TRUE,
+    size = 18
+  )
+
+
+p1_wei6 <- p1
+
+# Save to high resolution dpi
+ggsave(here::here("plots/Sigmoid_Gini_dagum4.png"), plot = p1, width = 15, height = 15, dpi = 300)
+###################################################################################################
+### Dagum 2:
+
+# Subset Dagum 4 parameters
+weibull_params_6 <- weibull_params %>%
+  filter(model == "model_chosen_1") %>%
+  select(-model)
+
+
+# Define the modified sigmoid function
+sigmoid_modified <- function(x, x2, pop_dens , usa_dum, alpha, alpha_0, alpha_1, scal, 
+                             shape1_0, shape1_1, shape2) {
+  (alpha_0 + alpha_1 * pop_dens) * 
+    (1 + (x / scal)^(-(shape1_0 + shape1_1 * x2)))^(-shape2)
+}
+
+
+# Constants
+# Get parameters from weibull_params_3
+alpha <- weibull_params_6$alpha
+alpha_0 <- weibull_params_6$alpha_0
+alpha_1 <- weibull_params_6$alpha_1
+scal <- weibull_params_6$scal
+shape1_0 <- weibull_params_6$shape1_0
+shape1_1 <- weibull_params_6$shape1_1
+shape2 <- weibull_params_6$shape2
+
+# Population density
+pop_dens <- 270 # Median value
+urbanization <- 61.3 / 100 # Median value (61% urbanization) (as in graph)
+usa_dum <- 0
+
+# Generate data
+x_vals <- seq(0, 125000, length.out = 500)
+x2_vals <- seq(0.3, 0.7, by = 0.2)
+
+
+# Create plot data
+plot_data <- do.call(rbind, 
+                     lapply(x2_vals, function(x2_val) {
+                       data.frame(
+                         x = x_vals,
+                         y = sigmoid_modified(x_vals, x2 = x2_val, pop_dens = pop_dens,
+                                              
+                                              usa_dum = usa_dum,
+                                              scal = scal,
+                                              alpha = alpha,
+                                              alpha_0 = alpha_0,
+                                              alpha_1 = alpha_1,
+
+                                              shape1_0 = shape1_0,
+                                              shape1_1 = shape1_1,
+                                              shape2 = shape2),
+                         x2 = as.factor(round(x2_val, 2))
+                       )
+                     })
+)
+
+
+# Interpolate y-values at 25th percentile of x and 75th percentile of x
+intersections <- plot_data %>%
+  group_by(x2) %>%
+  summarise(
+    x_25 = quantile(x, 0.25, na.rm = TRUE),
+    x_75 = quantile(x, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  left_join(plot_data, by = "x2") %>%
+  group_by(x2) %>%
+  summarise(
+    y_25 = approx(x, y, xout = first(x_25))$y,
+    y_75 = approx(x, y, xout = first(x_75))$y,
+    .groups = "drop"
+  ) %>%
+  tidyr::pivot_longer(cols = starts_with("y_"), names_to = "x_val", values_to = "y") %>%
+  mutate(x_val = ifelse(x_val == "y_25", "25th percentile", "75th percentile"))
+
+p1 <- ggplot(plot_data, aes(x = x, y = y, color = x2)) +
+  geom_line() +
+  theme_bw() +
+  scale_color_manual(values = shell.brand.palette$Hex, name = "Gini") +
+  create_theme1(text_size = 40) +
+  labs(
+    title = expression(paste("Effect of Gini on Energy Service Captured by Dagum Model 2")),
+    x = "GDP per Capita",
+    y = "Energy Service (vehicle kms/ capita/ year)"
+  ) +
+  theme(legend.position = "right") +
+  guides(color = guide_legend(override.aes = list(linetype = "solid"))) +
+  annotate(
+    "text",
+    x = Inf, y = Inf,
+    label = "italic(y == (alpha + alpha[0] * USA[dum] + alpha[1]*pop_dens[it]) *\"\n\"*
+                (1 + (GDPpcap[it] / scal) ^ (-(shape[0] + shape[1] * Gini[it]))) ^ (-shape[2]))",
+    hjust = 1.1, vjust = 8.5,
+    parse = TRUE,
+    size = 18
+  )
+
+
+p1_wei6 <- p1
+
+# Save to high resolution dpi
+ggsave(here::here("plots/Sigmoid_Gini_dagum2.png"), plot = p1, width = 15, height = 15, dpi = 300)
+
+
+###############
+
+
+# Subset Dagum 1 parameters
 weibull_params_6 <- weibull_params %>%
   filter(model == "model_chosen_1") %>%
   select(-model)
